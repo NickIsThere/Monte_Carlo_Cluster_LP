@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from lpas.certificates.bounds import BoundCertificate
+    from lpas.corners.multi_corner_discovery import MultiCornerDiscoveryResult
 
 
 class SolverStatus(str, Enum):
@@ -147,6 +151,11 @@ class SolverResult:
     best_active_set: tuple[np.ndarray, np.ndarray] | None
     iterations: int
     status: SolverStatus
+    best_raw_gap: float | None = None
+    best_feasible_primal_lower_bound: float | None = None
+    best_feasible_dual_upper_bound: float | None = None
+    best_certified_gap: float | None = None
+    best_certified_relative_gap: float | None = None
     history: list[IterationMetrics] = field(default_factory=list)
     warm_start_hint: WarmStartHint | None = None
     scipy_result: ScipySolveResult | None = None
@@ -170,6 +179,8 @@ class SolverResult:
     polished_vs_scipy_active_set_jaccard: float | None = None
     polishing_improved_solution: bool | None = None
     polished_certified_feasible: bool | None = None
+    bound_certificate: BoundCertificate | None = None
+    corner_discovery: MultiCornerDiscoveryResult | None = None
 
 
 @dataclass

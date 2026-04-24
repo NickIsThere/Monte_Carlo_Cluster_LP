@@ -6,8 +6,8 @@ from collections import Counter
 
 import numpy as np
 
+from lpas.certificates.bounds import build_bound_certificate
 from lpas.core.active_set import extract_active_sets
-from lpas.core.certificates import select_best_certificate
 from lpas.core.lp_problem import LPProblem
 from lpas.core.primal_dual import evaluate_primal_dual_pairs
 from lpas.core.scoring import score_candidates
@@ -65,8 +65,8 @@ class AdaptiveLPSolver:
         history: list[IterationMetrics] = []
         archive_limit = self.config.archive_limit_multiplier * self.config.batch_size
         elite_count = max(1, math.ceil(self.config.batch_size * self.config.elite_fraction))
-        best_certificate: ArchiveEntry | None = None
         best_feasible: ArchiveEntry | None = None
+        best_dual_feasible: ArchiveEntry | None = None
         best_scored: ArchiveEntry | None = None
         best_score_seen = -np.inf
         stagnation = 0
@@ -149,18 +149,25 @@ class AdaptiveLPSolver:
                 if best_feasible is None or feasible_best.primal_objective > best_feasible.primal_objective:
                     best_feasible = feasible_best
 
-            certified_index = select_best_certificate(metrics, gap_tol=self.config.gap_tol)
-            if certified_index is not None:
-                candidate_certificate = self._make_archive_entry(X, Y, scores, metrics, active_sets, int(certified_index))
-                candidate_gap = max(candidate_certificate.raw_gap, 0.0)
-                if best_certificate is None or candidate_gap < max(best_certificate.raw_gap, 0.0):
-                    best_certificate = candidate_certificate
+            dual_feasible_mask = np.asarray(metrics.dual_feasible, dtype=bool)
+            if np.any(dual_feasible_mask):
+                dual_feasible_indices = np.flatnonzero(dual_feasible_mask)
+                dual_best_index = int(
+                    dual_feasible_indices[np.argmin(np.asarray(metrics.dual_objective, dtype=float)[dual_feasible_mask])]
+                )
+                dual_best = self._make_archive_entry(X, Y, scores, metrics, active_sets, dual_best_index)
+                if best_dual_feasible is None or dual_best.dual_objective < best_dual_feasible.dual_objective:
+                    best_dual_feasible = dual_best
 
             improved = False
             current_best_score = float(np.max(scores))
             if current_best_score > best_score_seen + 1e-12:
                 best_score_seen = current_best_score
                 improved = True
+
+            best_certified_gap = None
+            if best_feasible is not None and best_dual_feasible is not None:
+                best_certified_gap = float(best_dual_feasible.dual_objective - best_feasible.primal_objective)
 
             dominant_pattern = self._dominant_active_pattern(archive)
             history.append(
@@ -169,7 +176,7 @@ class AdaptiveLPSolver:
                     best_score=current_best_score,
                     mean_score=float(np.mean(scores)),
                     best_feasible_primal_objective=None if best_feasible is None else best_feasible.primal_objective,
-                    best_certified_gap=None if best_certificate is None else max(best_certificate.raw_gap, 0.0),
+                    best_certified_gap=best_certified_gap,
                     mean_primal_violation=float(np.mean(metrics.primal_violation_norm)),
                     mean_dual_violation=float(np.mean(metrics.dual_violation_norm)),
                     dominant_active_pattern=dominant_pattern,
@@ -180,7 +187,7 @@ class AdaptiveLPSolver:
                 )
             )
 
-            if best_certificate is not None and best_certificate.raw_gap <= self.config.gap_tol:
+            if best_certified_gap is not None and best_certified_gap <= self.config.gap_tol:
                 status = SolverStatus.OPTIMAL_CERTIFIED
                 break
 
@@ -200,7 +207,7 @@ class AdaptiveLPSolver:
         else:
             status = SolverStatus.APPROXIMATE if best_feasible is not None else SolverStatus.MAX_ITER_REACHED
 
-        raw_selected = best_feasible or best_scored or best_certificate
+        raw_selected = best_feasible or best_scored or best_dual_feasible
         polishing_result = polish_archive(
             canonical_problem,
             archive,
@@ -248,6 +255,21 @@ class AdaptiveLPSolver:
         if raw_selected is not None:
             raw_best_nonneg_active_mask = np.asarray(raw_selected.x <= self.config.active_tol, dtype=bool)
 
+        bound_certificate = build_bound_certificate(
+            canonical_problem,
+            raw_x=None if raw_selected is None else raw_selected.x,
+            raw_y=None if raw_selected is None else raw_selected.y,
+            raw_primal_objective=None if raw_selected is None else raw_selected.primal_objective,
+            raw_dual_objective=None if raw_selected is None else raw_selected.dual_objective,
+            primal_x=None if best_feasible is None else best_feasible.x,
+            primal_objective=None if best_feasible is None else best_feasible.primal_objective,
+            dual_y=None if best_dual_feasible is None else best_dual_feasible.y,
+            dual_objective=None if best_dual_feasible is None else best_dual_feasible.dual_objective,
+            polished_vertex=polished_best,
+            scipy_result=None,
+            feasibility_tol=self.config.feasibility_tol,
+        )
+
         final_best_x = None
         final_best_y = None
         final_best_primal_objective = None
@@ -261,7 +283,10 @@ class AdaptiveLPSolver:
         if use_polished and polished_best is not None:
             final_best_x = polished_best.x.copy()
             final_best_primal_objective = polished_best.objective
+            final_best_dual_objective = bound_certificate.best_feasible_dual_upper_bound
+            final_best_gap = bound_certificate.certified_gap
             final_best_primal_violation = polished_best.primal_violation
+            final_best_dual_violation = None if not np.isfinite(bound_certificate.dual_violation) else bound_certificate.dual_violation
             solution_source = "vertex_polishing"
         elif raw_selected is not None:
             final_best_x = raw_selected.x.copy()
@@ -293,6 +318,11 @@ class AdaptiveLPSolver:
             best_active_set=best_active_set,
             iterations=len(history),
             status=status,
+            best_raw_gap=bound_certificate.raw_gap,
+            best_feasible_primal_lower_bound=bound_certificate.best_feasible_primal_lower_bound,
+            best_feasible_dual_upper_bound=bound_certificate.best_feasible_dual_upper_bound,
+            best_certified_gap=bound_certificate.certified_gap,
+            best_certified_relative_gap=bound_certificate.certified_relative_gap,
             history=history,
             warm_start_hint=warm_start_hint,
             archive_size=len(archive),
@@ -313,4 +343,5 @@ class AdaptiveLPSolver:
             solution_source=solution_source,
             polishing_improved_solution=polishing_improved_solution,
             polished_certified_feasible=None if polished_best is None else polished_best.feasible,
+            bound_certificate=bound_certificate,
         )

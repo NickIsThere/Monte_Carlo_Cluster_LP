@@ -5,6 +5,8 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
+from lpas.certificates.bounds import BoundCertificate, build_bound_certificate
+from lpas.corners.multi_corner_discovery import MultiCornerDiscoveryResult, discover_multiple_corners
 from lpas.core.active_set import extract_active_sets
 from lpas.core.scoring import effective_gap, score_candidates
 from lpas.experiments.metrics import active_set_jaccard, exact_active_set_match, objective_gap_to_reference
@@ -61,6 +63,11 @@ class MethodExperimentResult:
     n_samples_total: int
     objective_gap_to_highs: float | None
     best_scored_entry: ArchiveEntry | None
+    best_raw_gap: float | None = None
+    best_feasible_primal_lower_bound: float | None = None
+    best_feasible_dual_upper_bound: float | None = None
+    best_certified_gap: float | None = None
+    best_certified_relative_gap: float | None = None
     raw_best_x: np.ndarray | None = None
     raw_best_objective: float | None = None
     raw_best_primal_violation: float | None = None
@@ -85,6 +92,8 @@ class MethodExperimentResult:
     captured_x: np.ndarray | None = None
     captured_scores: np.ndarray | None = None
     captured_is_elite: np.ndarray | None = None
+    bound_certificate: BoundCertificate | None = None
+    corner_discovery: MultiCornerDiscoveryResult | None = None
 
 
 def _make_archive_entry(X, Y, scores, metrics, active_sets, index: int) -> ArchiveEntry:
@@ -147,6 +156,22 @@ def _apply_vertex_polishing_variant(
     polished_best = polishing_result.best_vertex
     polishing_seconds = float(polishing_result.diagnostics.get("polishing_time_seconds", 0.0))
     reference_mask = _reference_active_mask(base_result.reference_result, base_result.n_constraints)
+    bound_certificate = build_bound_certificate(
+        problem.to_maximization(),
+        raw_primal_objective=None if base_result.bound_certificate is None else base_result.bound_certificate.raw_primal_objective,
+        raw_dual_objective=None if base_result.bound_certificate is None else base_result.bound_certificate.raw_dual_objective,
+        primal_x=None if base_result.bound_certificate is None else base_result.bound_certificate.best_feasible_primal_x,
+        primal_objective=None
+        if base_result.bound_certificate is None
+        else base_result.bound_certificate.best_feasible_primal_lower_bound,
+        dual_y=None if base_result.bound_certificate is None else base_result.bound_certificate.best_feasible_dual_y,
+        dual_objective=None
+        if base_result.bound_certificate is None
+        else base_result.bound_certificate.best_feasible_dual_upper_bound,
+        polished_vertex=polished_best,
+        scipy_result=base_result.reference_result,
+        feasibility_tol=config.feasibility_tol,
+    )
 
     polished_active_set_similarity = None
     polished_exact_match = None
@@ -210,6 +235,11 @@ def _apply_vertex_polishing_variant(
         time_to_identify_optimal_active_constraints=time_to_recovery,
         wall_clock_seconds=base_result.wall_clock_seconds + polishing_seconds,
         objective_gap_to_highs=objective_gap_to_reference(final_objective, base_result.reference_result.objective),
+        best_raw_gap=bound_certificate.raw_gap,
+        best_feasible_primal_lower_bound=bound_certificate.best_feasible_primal_lower_bound,
+        best_feasible_dual_upper_bound=bound_certificate.best_feasible_dual_upper_bound,
+        best_certified_gap=bound_certificate.certified_gap,
+        best_certified_relative_gap=bound_certificate.certified_relative_gap,
         polished_x=polished_x,
         polished_objective=polished_objective,
         polished_primal_violation=polished_primal_violation,
@@ -225,6 +255,7 @@ def _apply_vertex_polishing_variant(
         polishing_result=polishing_result,
         final_x=final_x,
         final_active_mask=final_active_mask,
+        bound_certificate=bound_certificate,
     )
 
 
@@ -261,6 +292,7 @@ def run_sampling_method(
     elite_count = max(1, int(np.ceil(config.elite_fraction * config.batch_size)))
     best_scored_entry: ArchiveEntry | None = None
     best_feasible_entry: ArchiveEntry | None = None
+    best_dual_feasible_entry: ArchiveEntry | None = None
     best_feasible_objective: float | None = None
     best_objective_any_candidate = -np.inf
     best_primal_violation = np.inf
@@ -344,6 +376,16 @@ def run_sampling_method(
             if best_feasible_entry is None or feasible_best_entry.primal_objective > best_feasible_entry.primal_objective:
                 best_feasible_entry = feasible_best_entry
 
+        dual_feasible_mask = np.asarray(metrics.dual_feasible, dtype=bool)
+        if np.any(dual_feasible_mask):
+            dual_feasible_indices = np.flatnonzero(dual_feasible_mask)
+            dual_best_index = int(
+                dual_feasible_indices[np.argmin(np.asarray(metrics.dual_objective, dtype=float)[dual_feasible_mask])]
+            )
+            dual_best_entry = _make_archive_entry(X, Y, scores, metrics, active_sets, dual_best_index)
+            if best_dual_feasible_entry is None or dual_best_entry.dual_objective < best_dual_feasible_entry.dual_objective:
+                best_dual_feasible_entry = dual_best_entry
+
         batch_jaccards = np.asarray(
             [active_set_jaccard(mask, reference_active_mask) for mask in active_sets.primal_active_mask],
             dtype=float,
@@ -396,6 +438,27 @@ def run_sampling_method(
         raw_active_set_similarity = active_set_jaccard(raw_best_entry.primal_active_mask, reference_active_mask)
         raw_exact_match = exact_active_set_match(raw_best_entry.primal_active_mask, reference_active_mask)
 
+    bound_certificate = build_bound_certificate(
+        canonical_problem,
+        raw_x=None if raw_best_entry is None else raw_best_entry.x,
+        raw_y=None if raw_best_entry is None else raw_best_entry.y,
+        raw_primal_objective=None if raw_best_entry is None else raw_best_entry.primal_objective,
+        raw_dual_objective=None if raw_best_entry is None else raw_best_entry.dual_objective,
+        primal_x=None if best_feasible_entry is None else best_feasible_entry.x,
+        primal_objective=None if best_feasible_entry is None else best_feasible_entry.primal_objective,
+        dual_y=None if best_dual_feasible_entry is None else best_dual_feasible_entry.y,
+        dual_objective=None if best_dual_feasible_entry is None else best_dual_feasible_entry.dual_objective,
+        polished_vertex=None,
+        scipy_result=reference,
+        feasibility_tol=config.feasibility_tol,
+    )
+    corner_discovery = discover_multiple_corners(
+        canonical_problem,
+        np.asarray([entry.x for entry in archive], dtype=float) if archive else np.empty((0, canonical_problem.n), dtype=float),
+        dual_samples=np.asarray([entry.y for entry in archive], dtype=float) if archive else None,
+        reference_result=reference,
+    )
+
     return MethodExperimentResult(
         problem_name=problem_name,
         family=family,
@@ -410,6 +473,11 @@ def run_sampling_method(
         best_primal_violation=best_primal_violation,
         best_dual_violation=best_dual_violation,
         best_gap=best_gap,
+        best_raw_gap=bound_certificate.raw_gap,
+        best_feasible_primal_lower_bound=bound_certificate.best_feasible_primal_lower_bound,
+        best_feasible_dual_upper_bound=bound_certificate.best_feasible_dual_upper_bound,
+        best_certified_gap=bound_certificate.certified_gap,
+        best_certified_relative_gap=bound_certificate.certified_relative_gap,
         best_complementarity_error=best_complementarity,
         active_set_recovery_accuracy=best_active_jaccard,
         exact_active_set_match=exact_match,
@@ -443,6 +511,8 @@ def run_sampling_method(
         captured_x=captured_x,
         captured_scores=captured_scores,
         captured_is_elite=captured_is_elite,
+        bound_certificate=bound_certificate,
+        corner_discovery=corner_discovery,
     )
 
 

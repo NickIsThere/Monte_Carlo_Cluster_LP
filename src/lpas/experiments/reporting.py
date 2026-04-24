@@ -77,6 +77,11 @@ def benchmark_result_row(result: MethodExperimentResult) -> dict[str, object]:
         "best_primal_violation": result.best_primal_violation,
         "best_dual_violation": result.best_dual_violation,
         "best_gap": result.best_gap,
+        "best_raw_gap": result.best_raw_gap,
+        "best_feasible_primal_lower_bound": result.best_feasible_primal_lower_bound,
+        "best_feasible_dual_upper_bound": result.best_feasible_dual_upper_bound,
+        "best_certified_gap": result.best_certified_gap,
+        "best_certified_relative_gap": result.best_certified_relative_gap,
         "best_complementarity_error": result.best_complementarity_error,
         "active_set_recovery_accuracy": result.active_set_recovery_accuracy,
         "exact_active_set_match": result.exact_active_set_match,
@@ -98,6 +103,12 @@ def benchmark_result_row(result: MethodExperimentResult) -> dict[str, object]:
         "vertices_reconstructed": result.vertices_reconstructed,
         "vertices_feasible": result.vertices_feasible,
         "solution_source": result.solution_source,
+        "has_valid_certificate": None if result.bound_certificate is None else result.bound_certificate.has_valid_certificate,
+        "num_unique_vertices": None if result.corner_discovery is None else result.corner_discovery.num_unique_vertices,
+        "best_corner_objective": None
+        if result.corner_discovery is None or result.corner_discovery.best_vertex is None
+        else result.corner_discovery.best_vertex.objective,
+        "corner_optimum_jaccard": None if result.corner_discovery is None else result.corner_discovery.optimum_jaccard,
     }
 
 
@@ -111,6 +122,8 @@ def benchmark_result_payload(result: MethodExperimentResult) -> dict[str, object
             "objective": result.reference_result.objective,
             "primal_active_mask": _jsonify(result.reference_result.primal_active_mask),
         },
+        "bound_certificate": None if result.bound_certificate is None else _jsonify(result.bound_certificate),
+        "corner_discovery": None if result.corner_discovery is None else _jsonify(result.corner_discovery),
         "history": [_jsonify(entry) for entry in result.history],
         "best_scored_entry": None
         if result.best_scored_entry is None
