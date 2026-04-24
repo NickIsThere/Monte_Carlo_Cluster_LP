@@ -14,9 +14,6 @@ This repository contains a research prototype for geometry-aware primal-dual ada
 - It does not implement true HiGHS warm-start support in this version.
 - It is not optimized for large sparse LPs or production-scale workloads.
 
-## Repository Note
-
-The original specification refers to `agents.md`, but this repository keeps the spec as [LP_Mote_Carlo.md](/Users/nickgrebe/Projects/LP_Experiment/LP_Mote_Carlo.md). That filename mismatch is intentional in this implementation.
 
 ## Package Layout
 
@@ -66,3 +63,7 @@ python scripts/run_benchmark.py
 ## Experimental Status
 
 This prototype is intended to be correct, modular, and reproducible rather than aggressively optimized. The important scientific question is whether geometry-aware sampling discovers useful active sets faster than naive Monte Carlo, not whether it beats HiGHS directly.
+
+## Note on LLms in the creation of this experiment
+LLMs were used in the code creation and implementation as a quick way to be able to get to actually experimenting with my idea.
+If interested I saved the md files that I created with the implementation guidelines and am happy to share those!
