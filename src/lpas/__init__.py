@@ -2,16 +2,33 @@
 
 from lpas.core.lp_problem import LPProblem
 from lpas.solver.adaptive_solver import AdaptiveLPSolver
-from lpas.solver.result import SolverResult, SolverStatus
-from lpas.utils.config import SamplerConfig, ScoringConfig, SolverConfig, WarmStartConfig
+from lpas.solver.parallel_solver import ParallelLPSolver
+from lpas.solver.result import ParallelIterationMetrics, ParallelSolverResult, SolverResult, SolverStatus
+from lpas.utils.config import (
+    BackendConfig,
+    ParallelScoreConfig,
+    ParallelSolverConfig,
+    SamplerConfig,
+    ScoringConfig,
+    SolverConfig,
+    VertexPolishingConfig,
+    WarmStartConfig,
+)
 
 __all__ = [
     "AdaptiveLPSolver",
+    "BackendConfig",
     "LPProblem",
+    "ParallelIterationMetrics",
+    "ParallelLPSolver",
+    "ParallelScoreConfig",
+    "ParallelSolverConfig",
+    "ParallelSolverResult",
     "SamplerConfig",
     "ScoringConfig",
     "SolverConfig",
     "SolverResult",
     "SolverStatus",
+    "VertexPolishingConfig",
     "WarmStartConfig",
 ]

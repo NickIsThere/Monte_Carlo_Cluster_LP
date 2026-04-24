@@ -26,6 +26,7 @@ def reconstruct_from_active_set(
             feasible=False,
             objective=None,
             message="Not enough active constraints to reconstruct a vertex",
+            constraint_system="original",
         )
     tested = 0
     for subset in combinations(active_indices, problem.n):
@@ -51,6 +52,7 @@ def reconstruct_from_active_set(
                 feasible=True,
                 objective=objective,
                 message="Feasible vertex reconstructed from active constraints",
+                constraint_system="original",
             )
     return WarmStartHint(
         candidate_x=None,
@@ -59,6 +61,7 @@ def reconstruct_from_active_set(
         feasible=False,
         objective=None,
         message="No feasible full-rank active subset found",
+        constraint_system="original",
     )
 
 
@@ -76,6 +79,7 @@ def reconstruct_from_archive(
             feasible=False,
             objective=None,
             message="Archive is empty",
+            constraint_system="original",
         )
     counts: dict[tuple[bool, ...], int] = {}
     for entry in archive:

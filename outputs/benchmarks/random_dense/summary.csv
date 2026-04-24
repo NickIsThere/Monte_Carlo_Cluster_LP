@@ -1,0 +1,3 @@
+method,count,active_set_recovery_accuracy_mean,time_to_identify_optimal_active_constraints_mean,objective_gap_to_highs_mean,wall_clock_seconds_mean
+geometry_aware,8,1.0,0.0031387758936034516,0.22215306596839512,0.022855687406263314
+naive_monte_carlo,8,0.9541666666666667,0.003256697877077386,0.31262351887531015,0.01323360437527299

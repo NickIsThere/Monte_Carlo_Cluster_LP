@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 import numpy as np
 
@@ -49,6 +50,28 @@ class IterationMetrics:
 
 
 @dataclass(frozen=True)
+class ParallelIterationMetrics:
+    iteration: int
+    samples_evaluated: int
+    best_score: float
+    best_primal_objective: float
+    best_dual_objective: float
+    best_gap: float
+    best_primal_violation: float
+    best_dual_violation: float
+    best_complementarity: float
+    elite_mean_score: float
+    elite_mean_gap: float
+    elite_mean_primal_violation: float
+    elite_mean_dual_violation: float
+    active_frequency_entropy: float
+    elapsed_time_seconds: float
+    samples_per_second: float
+    backend_name: str
+    device_name: str
+
+
+@dataclass(frozen=True)
 class WarmStartHint:
     candidate_x: np.ndarray | None
     active_constraint_indices: tuple[int, ...]
@@ -56,6 +79,46 @@ class WarmStartHint:
     feasible: bool
     objective: float | None
     message: str
+    constraint_system: str = "original"
+
+
+@dataclass(frozen=True)
+class SoftActiveSetCandidate:
+    active_indices: tuple[int, ...]
+    source_sample_index: int | None
+    score: float
+    slacks: np.ndarray
+    soft_scores: np.ndarray
+    rank_method: str
+    sample_objective: float | None = None
+    sample_primal_violation: float | None = None
+
+
+@dataclass(frozen=True)
+class PolishedVertex:
+    x: np.ndarray
+    objective: float
+    active_indices: tuple[int, ...]
+    feasible: bool
+    primal_violation: float
+    reconstruction_residual: float
+    condition_number: float | None
+    source_sample_index: int | None
+    original_active_mask: np.ndarray
+    nonneg_active_mask: np.ndarray
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class VertexPolishingResult:
+    best_vertex: PolishedVertex | None
+    vertices: list[PolishedVertex]
+    candidates: list[SoftActiveSetCandidate] = field(default_factory=list)
+    candidates_tried: int = 0
+    candidates_feasible: int = 0
+    improvement_over_raw: float | None = None
+    recovered_active_set: tuple[int, ...] | None = None
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -66,6 +129,8 @@ class ScipySolveResult:
     x: np.ndarray | None
     objective: float | None
     primal_active_mask: np.ndarray | None = None
+    nonneg_active_mask: np.ndarray | None = None
+    augmented_primal_active_mask: np.ndarray | None = None
     raw_status: object | None = None
 
 
@@ -87,3 +152,40 @@ class SolverResult:
     scipy_result: ScipySolveResult | None = None
     archive_size: int = 0
     best_score: float | None = None
+    raw_best_x: np.ndarray | None = None
+    raw_best_y: np.ndarray | None = None
+    raw_best_primal_objective: float | None = None
+    raw_best_primal_violation: float | None = None
+    raw_best_active_mask: np.ndarray | None = None
+    raw_best_nonneg_active_mask: np.ndarray | None = None
+    polished_best_x: np.ndarray | None = None
+    polished_best_primal_objective: float | None = None
+    polished_best_primal_violation: float | None = None
+    polished_best_active_mask: np.ndarray | None = None
+    polished_best_nonneg_active_mask: np.ndarray | None = None
+    polished_best_active_indices: tuple[int, ...] | None = None
+    polishing_result: VertexPolishingResult | None = None
+    solution_source: str = "none"
+    raw_vs_scipy_active_set_jaccard: float | None = None
+    polished_vs_scipy_active_set_jaccard: float | None = None
+    polishing_improved_solution: bool | None = None
+    polished_certified_feasible: bool | None = None
+
+
+@dataclass
+class ParallelSolverResult:
+    best_x: np.ndarray
+    best_y: np.ndarray
+    best_score: float
+    best_primal_objective: float
+    best_dual_objective: float
+    best_gap: float
+    best_primal_violation: float
+    best_dual_violation: float
+    best_complementarity_error: float
+    likely_active_constraints: np.ndarray
+    active_frequencies: np.ndarray
+    history: list[ParallelIterationMetrics] = field(default_factory=list)
+    backend: str = "numpy_cpu"
+    device: str = "cpu"
+    dtype: str = "float32"

@@ -40,6 +40,50 @@ class WarmStartConfig:
 
 
 @dataclass(frozen=True)
+class VertexPolishingConfig:
+    enabled: bool = True
+    elite_fraction: float = 0.05
+    tau: float = 1e-2
+    method: str = "rbf"
+    max_ranked_constraints: int | None = None
+    max_candidates_per_sample: int = 100
+    max_total_candidates: int = 5000
+    feasibility_tol: float = 1e-8
+    residual_tol: float = 1e-8
+
+
+@dataclass(frozen=True)
+class BackendConfig:
+    backend: str = "auto_torch"
+    dtype: str = "float32"
+    active_epsilon: float = 1e-5
+    dual_positive_epsilon: float = 1e-6
+
+
+@dataclass(frozen=True)
+class ParallelScoreConfig:
+    objective: float = 1.0
+    gap: float = 1.0
+    primal_violation: float = 100.0
+    dual_violation: float = 100.0
+    complementarity: float = 0.1
+    active_support: float = 0.0
+    active_agreement: float = 0.0
+    active_conflict: float = 0.0
+
+
+@dataclass(frozen=True)
+class ParallelSolverConfig:
+    samples_per_iteration: int = 100_000
+    chunk_size: int | None = None
+    elite_fraction: float = 0.05
+    iterations: int = 100
+    backend: BackendConfig = field(default_factory=BackendConfig)
+    scoring: ParallelScoreConfig = field(default_factory=ParallelScoreConfig)
+    sampler: SamplerConfig = field(default_factory=SamplerConfig)
+
+
+@dataclass(frozen=True)
 class SolverConfig:
     batch_size: int = 1024
     max_iter: int = 500
@@ -55,3 +99,4 @@ class SolverConfig:
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
     sampler: SamplerConfig = field(default_factory=SamplerConfig)
     warm_start: WarmStartConfig = field(default_factory=WarmStartConfig)
+    vertex_polishing: VertexPolishingConfig = field(default_factory=VertexPolishingConfig)

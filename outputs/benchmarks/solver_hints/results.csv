@@ -1,0 +1,17 @@
+problem_name,family,method,seed,n_variables,n_constraints,hint_active_set_jaccard,hint_corner_feasible,hint_corner_objective,objective_gap_to_highs,constraints_in_top_k_support,reconstruction_success,wall_clock_seconds,top_k,reference_objective
+bounded_dense_n2_m8_i0,bounded_dense,geometry_aware,0,2,8,0.0,False,,,1.0,False,0.016030540922656655,2,0.9641600428523377
+bounded_dense_n2_m8_i0,bounded_dense,naive_monte_carlo,0,2,8,0.0,False,,,1.0,False,0.010366415954194963,2,0.9641600428523377
+controlled_optimum_n2_m8_i1,controlled_optimum,geometry_aware,0,2,8,0.0,False,,,1.0,False,0.02134770795237273,2,2.8901015096022498
+controlled_optimum_n2_m8_i1,controlled_optimum,naive_monte_carlo,0,2,8,0.0,False,,,1.0,False,0.014085207949392498,2,2.8901015096022498
+bounded_dense_n2_m12_i0,bounded_dense,geometry_aware,0,2,12,0.0,False,,,1.0,False,0.01978487498126924,2,1.1649679111553004
+bounded_dense_n2_m12_i0,bounded_dense,naive_monte_carlo,0,2,12,0.0,False,,,0.5,False,0.009340333053842187,2,1.1649679111553004
+controlled_optimum_n2_m12_i1,controlled_optimum,geometry_aware,0,2,12,0.0,False,,,1.0,False,0.021552041987888515,2,3.972303985573432
+controlled_optimum_n2_m12_i1,controlled_optimum,naive_monte_carlo,0,2,12,0.0,False,,,1.0,False,0.010951208067126572,2,3.972303985573432
+bounded_dense_n5_m8_i0,bounded_dense,geometry_aware,0,5,8,0.0,False,,,1.0,False,0.017701916047371924,5,4.707766722163072
+bounded_dense_n5_m8_i0,bounded_dense,naive_monte_carlo,0,5,8,0.0,False,,,1.0,False,0.010464833001606166,5,4.707766722163072
+controlled_optimum_n5_m8_i1,controlled_optimum,geometry_aware,0,5,8,0.0,False,,,0.8,False,0.020696124993264675,5,13.335799924285604
+controlled_optimum_n5_m8_i1,controlled_optimum,naive_monte_carlo,0,5,8,0.0,False,,,0.8,False,0.00964866706635803,5,13.335799924285604
+bounded_dense_n5_m12_i0,bounded_dense,geometry_aware,0,5,12,0.0,False,,,0.75,False,0.029939792002551258,5,3.287529244541243
+bounded_dense_n5_m12_i0,bounded_dense,naive_monte_carlo,0,5,12,0.0,False,,,0.75,False,0.014696915983222425,5,3.287529244541243
+controlled_optimum_n5_m12_i1,controlled_optimum,geometry_aware,0,5,12,0.0,False,,,1.0,False,0.020939041045494378,5,10.915514761759376
+controlled_optimum_n5_m12_i1,controlled_optimum,naive_monte_carlo,0,5,12,0.0,False,,,1.0,False,0.013749875011853874,5,10.915514761759376

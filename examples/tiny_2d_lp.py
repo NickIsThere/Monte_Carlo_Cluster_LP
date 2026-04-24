@@ -26,7 +26,12 @@ def main() -> None:
             "status": adaptive_result.status.value,
             "best_x": None if adaptive_result.best_x is None else adaptive_result.best_x.tolist(),
             "best_primal_objective": adaptive_result.best_primal_objective,
-            "best_gap": adaptive_result.best_gap,
+            "solution_source": adaptive_result.solution_source,
+            "raw_best_x": None if adaptive_result.raw_best_x is None else adaptive_result.raw_best_x.tolist(),
+            "raw_best_primal_objective": adaptive_result.raw_best_primal_objective,
+            "polished_best_x": None if adaptive_result.polished_best_x is None else adaptive_result.polished_best_x.tolist(),
+            "polished_best_primal_objective": adaptive_result.polished_best_primal_objective,
+            "polishing_improved_solution": adaptive_result.polishing_improved_solution,
             "warm_start_message": None if adaptive_result.warm_start_hint is None else adaptive_result.warm_start_hint.message,
         }
     )

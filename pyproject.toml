@@ -15,9 +15,20 @@ authors = [
 dependencies = [
   "numpy>=2.0",
   "scipy>=1.13",
+  "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]
+gpu = [
+  "torch>=2.4",
+]
+numba = [
+  "numba>=0.60",
+]
+parallel = [
+  "torch>=2.4",
+  "numba>=0.60",
+]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",

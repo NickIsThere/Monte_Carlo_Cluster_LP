@@ -24,6 +24,11 @@ def main() -> None:
         {
             "adaptive_status": adaptive_result.status.value,
             "adaptive_objective": adaptive_result.best_primal_objective,
+            "solution_source": adaptive_result.solution_source,
+            "raw_objective": adaptive_result.raw_best_primal_objective,
+            "polished_objective": adaptive_result.polished_best_primal_objective,
+            "raw_vs_scipy_active_set_jaccard": adaptive_result.raw_vs_scipy_active_set_jaccard,
+            "polished_vs_scipy_active_set_jaccard": adaptive_result.polished_vs_scipy_active_set_jaccard,
             "scipy_success": scipy_result.success,
             "scipy_objective": scipy_result.objective,
             "relative_error": comparison.relative_objective_error,

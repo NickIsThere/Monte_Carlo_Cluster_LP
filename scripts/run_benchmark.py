@@ -20,6 +20,11 @@ def main() -> None:
             {
                 "adaptive_status": record.adaptive_result.status.value,
                 "adaptive_objective": record.adaptive_result.best_primal_objective,
+                "solution_source": record.adaptive_result.solution_source,
+                "raw_objective": record.adaptive_result.raw_best_primal_objective,
+                "polished_objective": record.adaptive_result.polished_best_primal_objective,
+                "raw_vs_scipy_active_set_jaccard": record.adaptive_result.raw_vs_scipy_active_set_jaccard,
+                "polished_vs_scipy_active_set_jaccard": record.adaptive_result.polished_vs_scipy_active_set_jaccard,
                 "scipy_objective": record.scipy_result.objective,
                 "relative_error": record.relative_error,
             },

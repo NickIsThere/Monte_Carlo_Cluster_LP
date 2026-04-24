@@ -15,6 +15,7 @@ from lpas.geometry.clustering import active_pattern_key, compute_cluster_support
 from lpas.geometry.density_reward import compute_geometry_support
 from lpas.sampling.gaussian_sampler import GaussianAdaptiveSampler
 from lpas.solver.result import ArchiveEntry, IterationMetrics, SolverResult, SolverStatus
+from lpas.solver.vertex_polishing import polish_archive, polished_vertex_to_warm_start_hint
 from lpas.solver.warm_start import reconstruct_from_active_set, reconstruct_from_archive
 from lpas.utils.config import SolverConfig
 
@@ -138,9 +139,13 @@ class AdaptiveLPSolver:
             if best_scored is None or candidate_best.score > best_scored.score:
                 best_scored = candidate_best
 
-            feasible_entries = [entry for entry in new_entries if entry.primal_feasible]
-            if feasible_entries:
-                feasible_best = max(feasible_entries, key=lambda entry: entry.primal_objective)
+            feasible_mask = np.asarray(metrics.primal_feasible, dtype=bool)
+            if np.any(feasible_mask):
+                feasible_indices = np.flatnonzero(feasible_mask)
+                feasible_best_index = int(
+                    feasible_indices[np.argmax(np.asarray(metrics.primal_objective, dtype=float)[feasible_mask])]
+                )
+                feasible_best = self._make_archive_entry(X, Y, scores, metrics, active_sets, feasible_best_index)
                 if best_feasible is None or feasible_best.primal_objective > best_feasible.primal_objective:
                     best_feasible = feasible_best
 
@@ -195,20 +200,42 @@ class AdaptiveLPSolver:
         else:
             status = SolverStatus.APPROXIMATE if best_feasible is not None else SolverStatus.MAX_ITER_REACHED
 
-        selected = best_certificate or best_feasible or best_scored
-        if selected is not None:
+        raw_selected = best_feasible or best_scored or best_certificate
+        polishing_result = polish_archive(
+            canonical_problem,
+            archive,
+            config=self.config.vertex_polishing,
+        )
+        polished_best = polishing_result.best_vertex
+        if polished_best is not None and polished_best.feasible and status == SolverStatus.MAX_ITER_REACHED:
+            status = SolverStatus.APPROXIMATE
+
+        use_polished = bool(
+            polished_best is not None
+            and polished_best.feasible
+            and (
+                raw_selected is None
+                or not raw_selected.primal_feasible
+                or polished_best.objective > raw_selected.primal_objective + 1e-12
+            )
+        )
+
+        if polished_best is not None and polished_best.feasible:
+            warm_start_hint = polished_vertex_to_warm_start_hint(polished_best)
+        elif raw_selected is not None:
             warm_start_hint = reconstruct_from_active_set(
                 canonical_problem,
-                selected.primal_active_mask,
+                raw_selected.primal_active_mask,
                 config=self.config.warm_start,
             )
             if not warm_start_hint.feasible:
                 warm_start_hint = reconstruct_from_archive(canonical_problem, archive, config=self.config.warm_start)
         else:
             warm_start_hint = reconstruct_from_archive(canonical_problem, archive, config=self.config.warm_start)
+
         best_active_set = None
-        if selected is not None:
-            best_active_set = (selected.primal_active_mask.copy(), selected.dual_active_mask.copy())
+        if raw_selected is not None:
+            best_active_set = (raw_selected.primal_active_mask.copy(), raw_selected.dual_active_mask.copy())
         else:
             dominant_pattern = self._dominant_active_pattern(archive)
             if dominant_pattern is not None:
@@ -216,20 +243,74 @@ class AdaptiveLPSolver:
                     np.asarray(dominant_pattern[0], dtype=bool),
                     np.asarray(dominant_pattern[1], dtype=bool),
                 )
+
+        raw_best_nonneg_active_mask = None
+        if raw_selected is not None:
+            raw_best_nonneg_active_mask = np.asarray(raw_selected.x <= self.config.active_tol, dtype=bool)
+
+        final_best_x = None
+        final_best_y = None
+        final_best_primal_objective = None
+        final_best_dual_objective = None
+        final_best_gap = None
+        final_best_primal_violation = None
+        final_best_dual_violation = None
+        final_best_complementarity_error = None
+        solution_source = "none"
+
+        if use_polished and polished_best is not None:
+            final_best_x = polished_best.x.copy()
+            final_best_primal_objective = polished_best.objective
+            final_best_primal_violation = polished_best.primal_violation
+            solution_source = "vertex_polishing"
+        elif raw_selected is not None:
+            final_best_x = raw_selected.x.copy()
+            final_best_y = raw_selected.y.copy()
+            final_best_primal_objective = raw_selected.primal_objective
+            final_best_dual_objective = raw_selected.dual_objective
+            final_best_gap = raw_selected.raw_gap
+            final_best_primal_violation = raw_selected.primal_violation
+            final_best_dual_violation = raw_selected.dual_violation
+            final_best_complementarity_error = raw_selected.complementarity_error
+            solution_source = "raw_sampling"
+
+        polishing_improved_solution = None
+        if polished_best is not None:
+            if raw_selected is None or not raw_selected.primal_feasible:
+                polishing_improved_solution = bool(polished_best.feasible)
+            else:
+                polishing_improved_solution = bool(polished_best.objective > raw_selected.primal_objective + 1e-12)
+
         return SolverResult(
-            best_x=None if selected is None else selected.x.copy(),
-            best_y=None if selected is None else selected.y.copy(),
-            best_primal_objective=None if selected is None else selected.primal_objective,
-            best_dual_objective=None if selected is None else selected.dual_objective,
-            best_gap=None if selected is None else selected.raw_gap,
-            best_primal_violation=None if selected is None else selected.primal_violation,
-            best_dual_violation=None if selected is None else selected.dual_violation,
-            best_complementarity_error=None if selected is None else selected.complementarity_error,
+            best_x=final_best_x,
+            best_y=final_best_y,
+            best_primal_objective=final_best_primal_objective,
+            best_dual_objective=final_best_dual_objective,
+            best_gap=final_best_gap,
+            best_primal_violation=final_best_primal_violation,
+            best_dual_violation=final_best_dual_violation,
+            best_complementarity_error=final_best_complementarity_error,
             best_active_set=best_active_set,
             iterations=len(history),
             status=status,
             history=history,
             warm_start_hint=warm_start_hint,
             archive_size=len(archive),
-            best_score=None if selected is None else selected.score,
+            best_score=None if raw_selected is None else raw_selected.score,
+            raw_best_x=None if raw_selected is None else raw_selected.x.copy(),
+            raw_best_y=None if raw_selected is None else raw_selected.y.copy(),
+            raw_best_primal_objective=None if raw_selected is None else raw_selected.primal_objective,
+            raw_best_primal_violation=None if raw_selected is None else raw_selected.primal_violation,
+            raw_best_active_mask=None if raw_selected is None else raw_selected.primal_active_mask.copy(),
+            raw_best_nonneg_active_mask=raw_best_nonneg_active_mask,
+            polished_best_x=None if polished_best is None else polished_best.x.copy(),
+            polished_best_primal_objective=None if polished_best is None else polished_best.objective,
+            polished_best_primal_violation=None if polished_best is None else polished_best.primal_violation,
+            polished_best_active_mask=None if polished_best is None else polished_best.original_active_mask.copy(),
+            polished_best_nonneg_active_mask=None if polished_best is None else polished_best.nonneg_active_mask.copy(),
+            polished_best_active_indices=None if polished_best is None else polished_best.active_indices,
+            polishing_result=polishing_result,
+            solution_source=solution_source,
+            polishing_improved_solution=polishing_improved_solution,
+            polished_certified_feasible=None if polished_best is None else polished_best.feasible,
         )
