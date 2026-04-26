@@ -48,3 +48,87 @@ def test_quick_solver_hint_experiment_runs_and_writes_outputs(tmp_path: Path) ->
     assert (tmp_path / "benchmarks" / "solver_hints" / "results.json").exists()
     assert (tmp_path / "benchmarks" / "solver_hints" / "summary.md").exists()
     assert (tmp_path / "figures" / "solver_hints" / "hint_active_set_jaccard_distribution.png").exists()
+
+
+def test_quick_gpu_throughput_script_runs_and_writes_outputs(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "benchmarks/benchmark_gpu_throughput.py", "--quick", "--backends", "numpy_cpu", "--output-dir", str(tmp_path)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert (tmp_path / "results" / "gpu_benchmarks" / "gpu_throughput_results.csv").exists()
+    assert (tmp_path / "results" / "gpu_benchmarks" / "gpu_throughput_results.json").exists()
+    assert (tmp_path / "figures" / "gpu_benchmarks" / "samples_per_second_vs_K.png").exists()
+
+
+def test_quick_full_extension_gpu_stage_runs_and_writes_outputs(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "experiments/run_full_extension_evaluation.py", "--quick", "--stage", "gpu-benchmark", "--output-dir", str(tmp_path)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert (tmp_path / "results" / "gpu_benchmarks" / "gpu_throughput_results.csv").exists()
+    assert (tmp_path / "results" / "gpu_benchmarks" / "gpu_throughput_results.json").exists()
+    assert (tmp_path / "figures" / "gpu_benchmarks" / "samples_per_second_vs_K.png").exists()
+
+
+def test_quick_scaling_script_runs_and_writes_outputs(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "experiments/scaling_by_dimension.py", "--quick", "--output-dir", str(tmp_path)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert (tmp_path / "results" / "scaling" / "scaling_results.csv").exists()
+    assert (tmp_path / "results" / "scaling" / "scaling_summary_by_dimension.csv").exists()
+    assert (tmp_path / "figures" / "scaling" / "success_rate_vs_dimension.png").exists()
+
+
+def test_quick_solver_seeding_benchmark_runs_and_writes_outputs(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "benchmarks/benchmark_solver_seeding_total_time.py", "--quick", "--output-dir", str(tmp_path)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert (tmp_path / "results" / "solver_seeding" / "solver_seeding_total_time_results.csv").exists()
+    assert (tmp_path / "results" / "solver_seeding" / "solver_seeding_total_time_results.json").exists()
+    assert (tmp_path / "figures" / "solver_seeding" / "time_breakdown_stacked_bar.png").exists()
+
+
+def test_quick_corner_discovery_script_runs_and_writes_outputs(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "experiments/corner_discovery.py", "--quick", "--output-dir", str(tmp_path)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert (tmp_path / "results" / "corner_discovery" / "corner_discovery_results.csv").exists()
+    assert (tmp_path / "results" / "corner_discovery" / "corner_discovery_results.json").exists()
+    assert (tmp_path / "figures" / "corner_discovery" / "active_set_jaccard_vs_dimension.png").exists()
+
+
+def test_certificate_validation_script_runs_and_writes_outputs(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "experiments/certificate_validation.py", "--output-dir", str(tmp_path)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert (tmp_path / "results" / "certificates" / "certificate_separation_examples.json").exists()
+    assert (tmp_path / "results" / "certificates" / "certificate_separation_summary.md").exists()
+    assert (tmp_path / "figures" / "certificates" / "certificate_gap_comparison.png").exists()

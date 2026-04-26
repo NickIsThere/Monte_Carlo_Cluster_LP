@@ -13,7 +13,7 @@ from lpas.experiments.random_dense import (
     generate_bounded_dense_lp,
     generate_controlled_optimum_lp,
 )
-from lpas.experiments.reporting import benchmark_result_row
+from lpas.experiments.reporting import _markdown_table, benchmark_result_row
 from lpas.experiments.toy_lps import default_toy_cases, simple_3d_case
 from lpas.experiments.visualization import plot_feasible_region
 from lpas.solver.hints import evaluate_active_set_hint
@@ -82,6 +82,15 @@ def test_benchmark_result_row_contains_required_fields(fast_solver_config) -> No
         "n_samples_total",
     }
     assert required.issubset(row.keys())
+
+
+def test_markdown_table_escapes_pipe_characters() -> None:
+    table = _markdown_table(
+        [{"Metric": "status | summary", "Mean |raw gap|": "APPROXIMATE | 10\nstable"}],
+        ["Metric", "Mean |raw gap|"],
+    )
+    assert "| Metric | Mean \\|raw gap\\| |" in table
+    assert "| status \\| summary | APPROXIMATE \\| 10<br>stable |" in table
 
 
 def test_known_active_set_corner_reconstruction_still_works(small_lp) -> None:

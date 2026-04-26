@@ -1,6 +1,6 @@
 # Geometry-Aware LP Adaptive Sampling
 
-This repository contains a research prototype for geometry-aware primal-dual adaptive sampling for linear programming. It samples primal and dual candidates, scores them with feasibility and duality metrics, tracks recurring active-set patterns, and can compare or hand off diagnostics to SciPy/HiGHS.
+This repository explores geometry-aware primal-dual adaptive sampling for LP active-set discovery and vertex reconstruction. It samples primal and dual candidates, scores them with feasibility and duality diagnostics, tracks recurring active-set patterns, and compares the resulting corner candidates against SciPy/HiGHS.
 
 The current optimization pipeline is:
 
@@ -8,10 +8,12 @@ The current optimization pipeline is:
 
 The polishing step is a deterministic local refinement stage applied to elite primal samples. It is intended to turn near-corner samples into verified LP vertices, not to replace HiGHS.
 
+High-objective infeasible reconstructed vertices are not valid LP solutions. The evaluation code therefore ranks reconstructed vertices feasibility-first and treats infeasible high-objective candidates as diagnostics rather than successful reconstructions.
+
 ## What It Is
 
 - A Python package built around dense LPs of the form `Ax <= b`, `x >= 0`.
-- A research prototype for testing whether active-set geometry helps adaptive sampling find useful LP structure.
+- A research prototype for testing whether adaptive sampling, active-set statistics, and polishing can identify useful LP structure and corner candidates.
 - A hybrid tool that can surface candidate solutions, dual certificates, and active-set hints alongside a classical solver baseline.
 - A bounded vertex-polishing layer that reconstructs exact candidate vertices from soft active-set guesses.
 
@@ -22,9 +24,6 @@ The polishing step is a deterministic local refinement stage applied to elite pr
 - It is not optimized for large sparse LPs or production-scale workloads.
 - The new parallel backend is not a replacement for Simplex, Interior-Point, HiGHS, or PDLP.
 
-## Repository Note
-
-The original specification refers to `agents.md`, but this repository keeps the spec as [LP_Mote_Carlo.md](/Users/nickgrebe/Projects/LP_Experiment/LP_Mote_Carlo.md). That filename mismatch is intentional in this implementation.
 
 ## Package Layout
 
@@ -58,6 +57,21 @@ pip install -e '.[parallel]'
 
 PyTorch installation remains explicit because CUDA and Apple Silicon wheel selection is platform-specific. Numba is also explicit so the base environment stays lightweight.
 
+Apple Silicon MPS remediation:
+
+```bash
+rm -rf .venv
+/opt/homebrew/bin/python3.12 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+pip install -e '.[gpu]'
+python -c 'import torch; print(torch.backends.mps.is_available())'
+python -c 'import torch; print(torch.ones(1, device="mps"))'
+```
+
+If an Apple Silicon environment reports `mps_built=True` but `mps_available=False`, or `torch.ones(..., device="mps")` fails with an OS-version check, rebuild the environment with Homebrew Python 3.12 before relying on `torch_mps` or `auto_torch`.
+If the same checks still fail on macOS 26.x after that rebuild, treat it as an upstream PyTorch MPS compatibility issue on that OS release and expect `auto_torch` to fall back to CPU until PyTorch ships a fix.
+
 ## Parallel Backends
 
 The new batch-oriented solver lives alongside the original adaptive solver and is exposed as `lpas.ParallelLPSolver`.
@@ -75,11 +89,12 @@ Backend policy:
 
 - `torch_cuda` raises if CUDA is unavailable.
 - `torch_mps` raises if MPS is unavailable.
-- `auto_torch` may choose CUDA, then MPS, then CPU.
+- `auto_torch` may choose MPS, then CPU.
+- `auto_torch` never auto-selects CUDA.
 - `auto_torch` never chooses Numba.
 - `numba_cpu` is only used when explicitly requested.
 
-This keeps benchmarking and debugging reproducible. The project does not silently fall back from CUDA or MPS to CPU unless the user explicitly selects `auto_torch`.
+This keeps benchmarking and debugging reproducible. CUDA remains available as an explicit backend, while `auto_torch` is reserved for Apple Silicon MPS when available and otherwise falls back to CPU.
 
 ## Running The Parallel Solver
 
@@ -178,17 +193,6 @@ python examples/gpu_random_lp.py --backend torch_cpu
 python examples/compare_numpy_torch_numba.py --backend all
 ```
 
-## Experimental Layers
-
-The repository now includes three experiment layers for the bachelor-level research prototype:
-
-- Toy 2D/3D visual experiments for feasible regions, sample clouds, elite points, active constraints, and naive-vs-geometry comparisons.
-- Random dense LP benchmarks that compare naive Monte Carlo, raw geometry-aware sampling, and geometry-aware sampling plus vertex polishing under the same sample budget.
-- Solver-hint experiments that reconstruct candidate corners from sampled active sets and measure overlap against HiGHS.
-
-Scientific framing:
-
-> This project investigates whether geometry-aware adaptive sampling can recover useful active-set structure in dense linear programs faster than naive Monte Carlo sampling. The method is evaluated as a diagnostic and solver-hint mechanism, not as a replacement for mature LP solvers such as HiGHS.
 
 Quick commands:
 
@@ -224,7 +228,7 @@ See [EXPERIMENTS.md](/Users/nickgrebe/Projects/LP_Experiment/EXPERIMENTS.md) for
 
 - `primal_violation`: total violation of `Ax <= b` plus `x >= 0`.
 - `dual_violation`: total violation of `A^T y >= c` plus `y >= 0`.
-- `gap`: `b^T y - c^T x`; only meaningful as a certificate when both primal and dual points are feasible.
+- `gap`: `b^T y - c^T x`; the raw sampled gap is only a certificate when both primal and dual points are feasible.
 - `complementarity_error`: `|| y ⊙ (b - Ax) ||_1`.
 - `geometry_support`: kernel reward from nearby elite primal-dual samples.
 - `active-set support`: frequency-based support for repeated active-set patterns among elite candidates.
@@ -232,7 +236,7 @@ See [EXPERIMENTS.md](/Users/nickgrebe/Projects/LP_Experiment/EXPERIMENTS.md) for
 
 ## Experimental Status
 
-This prototype is intended to be correct, modular, and reproducible rather than aggressively optimized. The important scientific question is whether geometry-aware sampling discovers useful active sets faster than naive Monte Carlo, not whether it beats HiGHS directly.
+This prototype is intended to be correct, modular, and reproducible rather than aggressively optimized. The important scientific question is whether geometry-aware sampling discovers useful active sets faster than naive Monte Carlo, not whether it replaces HiGHS, Simplex, or Interior-Point methods.
 Current limitations:
 
 - The parallel solver currently targets dense LPs and dense batch evaluation.

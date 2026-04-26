@@ -6,7 +6,7 @@ from itertools import combinations, islice
 
 import numpy as np
 
-from lpas.core.feasibility import is_primal_feasible, primal_violation_norm
+from lpas.core.feasibility import primal_feasibility_report
 from lpas.core.lp_problem import LPProblem
 from lpas.solver.result import (
     ArchiveEntry,
@@ -15,7 +15,7 @@ from lpas.solver.result import (
     VertexPolishingResult,
     WarmStartHint,
 )
-from lpas.utils.config import VertexPolishingConfig
+from lpas.utils.config import FeasibilityConfig, VertexPolishingConfig
 
 
 def augment_primal_constraints(problem: LPProblem) -> tuple[np.ndarray, np.ndarray]:
@@ -149,6 +149,8 @@ def reconstruct_vertex_from_active_set(
     source_sample_index: int | None = None,
     A_aug: np.ndarray | None = None,
     b_aug: np.ndarray | None = None,
+    source_candidate_id: str | None = None,
+    feasibility_config: FeasibilityConfig | None = None,
 ) -> PolishedVertex | None:
     """Solve the equality system induced by one augmented active set."""
     active_tuple = tuple(sorted(int(index) for index in active_indices))
@@ -171,12 +173,14 @@ def reconstruct_vertex_from_active_set(
     except np.linalg.LinAlgError:
         return None
     residual = float(np.linalg.norm(A_active @ x - b_active, ord=np.inf))
-    primal_violation = primal_violation_norm(problem, x)
-    feasible = bool(
-        residual <= residual_tol
-        and primal_violation <= feasibility_tol
-        and is_primal_feasible(problem, x, tol=feasibility_tol)
+    feasibility_report = primal_feasibility_report(
+        problem,
+        x,
+        tol=feasibility_tol,
+        config=feasibility_config,
     )
+    primal_violation = float(feasibility_report.total_violation)
+    feasible = bool(residual <= residual_tol and feasibility_report.is_feasible)
     original_active_mask = (problem.b - problem.A @ x) <= feasibility_tol
     nonneg_active_mask = np.asarray(x <= feasibility_tol, dtype=bool)
     return PolishedVertex(
@@ -184,13 +188,21 @@ def reconstruct_vertex_from_active_set(
         objective=float(problem.maximization_objective_value(x)),
         active_indices=active_tuple,
         feasible=feasible,
-        primal_violation=float(primal_violation),
+        primal_violation=primal_violation,
         reconstruction_residual=residual,
         condition_number=condition_number,
         source_sample_index=source_sample_index,
         original_active_mask=np.asarray(original_active_mask, dtype=bool),
         nonneg_active_mask=nonneg_active_mask,
-        metadata={"rank": rank},
+        max_constraint_violation=feasibility_report.max_constraint_violation,
+        sum_constraint_violation=feasibility_report.total_violation,
+        polishing_status="FEASIBLE_VERTEX" if feasible else "INFEASIBLE_VERTEX",
+        metadata={
+            "rank": rank,
+            "source_candidate_id": source_candidate_id,
+            "max_constraint_violation": feasibility_report.max_constraint_violation,
+            "sum_constraint_violation": feasibility_report.total_violation,
+        },
     )
 
 
@@ -263,6 +275,8 @@ def polish_archive(
             source_sample_index=candidate.source_sample_index,
             A_aug=A_aug,
             b_aug=b_aug,
+            source_candidate_id=f"soft_active_set:{candidate.active_indices}",
+            feasibility_config=cfg.feasibility,
         )
         if vertex is None:
             continue
@@ -294,4 +308,3 @@ def polish_archive(
         recovered_active_set=None if best_vertex is None else best_vertex.active_indices,
         diagnostics=diagnostics,
     )
-

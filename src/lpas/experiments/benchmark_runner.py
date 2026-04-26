@@ -457,6 +457,7 @@ def run_sampling_method(
         np.asarray([entry.x for entry in archive], dtype=float) if archive else np.empty((0, canonical_problem.n), dtype=float),
         dual_samples=np.asarray([entry.y for entry in archive], dtype=float) if archive else None,
         reference_result=reference,
+        feasibility_config=config.feasibility,
     )
 
     return MethodExperimentResult(

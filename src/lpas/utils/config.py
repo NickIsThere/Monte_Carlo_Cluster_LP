@@ -4,6 +4,13 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class FeasibilityConfig:
+    absolute_tolerance: float = 1e-7
+    relative_tolerance: float = 1e-7
+    nonnegativity_tolerance: float = 1e-8
+
+
+@dataclass(frozen=True)
 class SamplerConfig:
     seed: int | None = 0
     alpha: float = 0.7
@@ -50,6 +57,7 @@ class VertexPolishingConfig:
     max_total_candidates: int = 5000
     feasibility_tol: float = 1e-8
     residual_tol: float = 1e-8
+    feasibility: FeasibilityConfig = field(default_factory=FeasibilityConfig)
 
 
 @dataclass(frozen=True)
@@ -100,3 +108,4 @@ class SolverConfig:
     sampler: SamplerConfig = field(default_factory=SamplerConfig)
     warm_start: WarmStartConfig = field(default_factory=WarmStartConfig)
     vertex_polishing: VertexPolishingConfig = field(default_factory=VertexPolishingConfig)
+    feasibility: FeasibilityConfig = field(default_factory=FeasibilityConfig)

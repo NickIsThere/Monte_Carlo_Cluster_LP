@@ -110,6 +110,9 @@ class PolishedVertex:
     source_sample_index: int | None
     original_active_mask: np.ndarray
     nonneg_active_mask: np.ndarray
+    max_constraint_violation: float = 0.0
+    sum_constraint_violation: float = 0.0
+    polishing_status: str = "NUMERIC_FAILURE"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

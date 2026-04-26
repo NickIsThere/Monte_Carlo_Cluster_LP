@@ -62,6 +62,8 @@ def benchmark_result_row(result: MethodExperimentResult) -> dict[str, object]:
     reference_active_set_size = None
     if result.reference_result.primal_active_mask is not None:
         reference_active_set_size = int(np.sum(np.asarray(result.reference_result.primal_active_mask, dtype=bool)))
+    certificate = result.bound_certificate
+    corner = result.corner_discovery
     return {
         "problem_name": result.problem_name,
         "family": result.family,
@@ -78,10 +80,22 @@ def benchmark_result_row(result: MethodExperimentResult) -> dict[str, object]:
         "best_dual_violation": result.best_dual_violation,
         "best_gap": result.best_gap,
         "best_raw_gap": result.best_raw_gap,
+        "raw_sampled_gap": None if certificate is None else certificate.raw_sampled_gap,
+        "raw_primal_violation": None if certificate is None else certificate.raw_primal_violation,
+        "raw_dual_violation": None if certificate is None else certificate.raw_dual_violation,
+        "raw_gap_is_diagnostic_only": None if certificate is None else certificate.raw_gap_is_diagnostic_only,
         "best_feasible_primal_lower_bound": result.best_feasible_primal_lower_bound,
         "best_feasible_dual_upper_bound": result.best_feasible_dual_upper_bound,
         "best_certified_gap": result.best_certified_gap,
         "best_certified_relative_gap": result.best_certified_relative_gap,
+        "best_polished_feasible_vertex_objective": None
+        if certificate is None
+        else certificate.best_polished_feasible_vertex_objective,
+        "best_polished_feasible_vertex_violation": None
+        if certificate is None
+        else certificate.best_polished_feasible_vertex_violation,
+        "scipy_certified_objective": None if certificate is None else certificate.scipy_certified_objective,
+        "scipy_status": None if certificate is None else certificate.scipy_status,
         "best_complementarity_error": result.best_complementarity_error,
         "active_set_recovery_accuracy": result.active_set_recovery_accuracy,
         "exact_active_set_match": result.exact_active_set_match,
@@ -103,12 +117,17 @@ def benchmark_result_row(result: MethodExperimentResult) -> dict[str, object]:
         "vertices_reconstructed": result.vertices_reconstructed,
         "vertices_feasible": result.vertices_feasible,
         "solution_source": result.solution_source,
-        "has_valid_certificate": None if result.bound_certificate is None else result.bound_certificate.has_valid_certificate,
-        "num_unique_vertices": None if result.corner_discovery is None else result.corner_discovery.num_unique_vertices,
-        "best_corner_objective": None
-        if result.corner_discovery is None or result.corner_discovery.best_vertex is None
-        else result.corner_discovery.best_vertex.objective,
-        "corner_optimum_jaccard": None if result.corner_discovery is None else result.corner_discovery.optimum_jaccard,
+        "has_valid_certificate": None if certificate is None else certificate.has_valid_certificate,
+        "num_unique_vertices": None if corner is None else corner.num_unique_vertices,
+        "num_feasible_corner_vertices": None if corner is None else corner.num_feasible_vertices,
+        "num_infeasible_corner_vertices": None if corner is None else corner.num_infeasible_vertices,
+        "has_feasible_corner_vertex": None if corner is None else corner.has_feasible_vertex,
+        "best_corner_objective": None if corner is None or corner.best_vertex is None else corner.best_vertex.objective,
+        "best_corner_objective_any": None if corner is None else corner.best_objective_any,
+        "best_infeasible_corner_objective": None
+        if corner is None or corner.best_infeasible_vertex is None
+        else corner.best_infeasible_vertex.objective,
+        "corner_optimum_jaccard": None if corner is None else corner.optimum_jaccard,
     }
 
 
@@ -219,12 +238,16 @@ def _format_value(value: object) -> str:
     return str(value)
 
 
+def _escape_markdown_table_cell(value: object) -> str:
+    return _format_value(value).replace("|", "\\|").replace("\n", "<br>")
+
+
 def _markdown_table(rows: list[dict[str, object]], columns: list[str]) -> str:
-    header = "| " + " | ".join(columns) + " |"
+    header = "| " + " | ".join(_escape_markdown_table_cell(column) for column in columns) + " |"
     separator = "| " + " | ".join(["---"] * len(columns)) + " |"
     lines = [header, separator]
     for row in rows:
-        lines.append("| " + " | ".join(_format_value(row.get(column)) for column in columns) + " |")
+        lines.append("| " + " | ".join(_escape_markdown_table_cell(row.get(column)) for column in columns) + " |")
     return "\n".join(lines)
 
 

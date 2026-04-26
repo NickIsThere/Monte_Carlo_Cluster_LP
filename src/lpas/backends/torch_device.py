@@ -25,8 +25,6 @@ def resolve_torch_device(backend: str):
             raise RuntimeError("Requested backend torch_mps, but MPS is not available.")
         return torch.device("mps")
     if backend == "auto_torch":
-        if torch.cuda.is_available():
-            return torch.device("cuda")
         mps_backend = getattr(torch.backends, "mps", None)
         if mps_backend is not None and mps_backend.is_available():
             return torch.device("mps")
