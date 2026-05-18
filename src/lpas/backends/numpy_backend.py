@@ -32,6 +32,7 @@ def evaluate_primal_dual_batch_numpy(
     primal_objective = X @ c
     dual_objective = Y @ b
     gap = dual_objective - primal_objective
+    superoptimality = np.maximum(-gap, 0.0)
     complementarity = np.abs(Y * primal_slack).sum(axis=1)
     active_mask = primal_slack <= active_epsilon
     active_count = active_mask.sum(axis=1)
@@ -39,6 +40,7 @@ def evaluate_primal_dual_batch_numpy(
         "primal_objective": primal_objective,
         "dual_objective": dual_objective,
         "gap": gap,
+        "superoptimality": superoptimality,
         "primal_violation": primal_violation,
         "dual_violation": dual_violation,
         "complementarity": complementarity,
@@ -59,6 +61,7 @@ def score_primal_dual_batch_numpy(
 ) -> np.ndarray:
     score = weights.objective * np.asarray(metrics["primal_objective"], dtype=float)
     score -= weights.gap * np.maximum(np.asarray(metrics["gap"], dtype=float), 0.0)
+    score -= weights.superoptimality * np.asarray(metrics["superoptimality"], dtype=float)
     score -= weights.primal_violation * np.asarray(metrics["primal_violation"], dtype=float)
     score -= weights.dual_violation * np.asarray(metrics["dual_violation"], dtype=float)
     score -= weights.complementarity * np.asarray(metrics["complementarity"], dtype=float)

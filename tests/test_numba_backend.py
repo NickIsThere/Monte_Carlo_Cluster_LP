@@ -23,7 +23,16 @@ def test_numba_evaluation_matches_numpy_on_fixed_data() -> None:
         active_epsilon=1e-5,
     )
     metrics_numba = evaluate_primal_dual_batch_numba(problem.A, problem.b, problem.c, X, Y, active_epsilon=1e-5)
-    for key in ("primal_objective", "dual_objective", "gap", "primal_violation", "dual_violation", "complementarity", "active_count"):
+    for key in (
+        "primal_objective",
+        "dual_objective",
+        "gap",
+        "superoptimality",
+        "primal_violation",
+        "dual_violation",
+        "complementarity",
+        "active_count",
+    ):
         np.testing.assert_allclose(metrics_np[key], metrics_numba[key], atol=1e-10, rtol=0.0)
 
 

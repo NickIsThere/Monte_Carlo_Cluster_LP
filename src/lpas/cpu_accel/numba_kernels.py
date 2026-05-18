@@ -26,6 +26,7 @@ if nb is not None:
         primal_objective = np.zeros(K, dtype=X.dtype)
         dual_objective = np.zeros(K, dtype=X.dtype)
         gap = np.zeros(K, dtype=X.dtype)
+        superoptimality = np.zeros(K, dtype=X.dtype)
         primal_violation = np.zeros(K, dtype=X.dtype)
         dual_violation = np.zeros(K, dtype=X.dtype)
         complementarity = np.zeros(K, dtype=X.dtype)
@@ -71,7 +72,9 @@ if nb is not None:
 
             primal_objective[k] = primal_obj
             dual_objective[k] = dual_obj
-            gap[k] = dual_obj - primal_obj
+            gap_value = dual_obj - primal_obj
+            gap[k] = gap_value
+            superoptimality[k] = max(-gap_value, 0.0)
             primal_violation[k] = primal_viol
             dual_violation[k] = dual_viol
             complementarity[k] = comp
@@ -81,6 +84,7 @@ if nb is not None:
             primal_objective,
             dual_objective,
             gap,
+            superoptimality,
             primal_violation,
             dual_violation,
             complementarity,
@@ -103,6 +107,7 @@ def evaluate_primal_dual_batch_numba(
         primal_objective,
         dual_objective,
         gap,
+        superoptimality,
         primal_violation,
         dual_violation,
         complementarity,
@@ -112,6 +117,7 @@ def evaluate_primal_dual_batch_numba(
         "primal_objective": primal_objective,
         "dual_objective": dual_objective,
         "gap": gap,
+        "superoptimality": superoptimality,
         "primal_violation": primal_violation,
         "dual_violation": dual_violation,
         "complementarity": complementarity,

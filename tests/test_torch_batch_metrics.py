@@ -25,6 +25,7 @@ def test_shapes_are_correct() -> None:
     assert metrics["primal_objective"].shape == (3,)
     assert metrics["dual_objective"].shape == (3,)
     assert metrics["gap"].shape == (3,)
+    assert metrics["superoptimality"].shape == (3,)
     assert metrics["primal_violation"].shape == (3,)
     assert metrics["dual_violation"].shape == (3,)
     assert metrics["complementarity"].shape == (3,)
@@ -94,6 +95,19 @@ def test_feasible_pair_has_nonnegative_gap() -> None:
         torch.as_tensor(np.asarray([y]), dtype=torch.float64),
     )
     assert metrics["gap"][0].item() >= -1e-8
+
+
+def test_negative_gap_is_marked_as_superoptimality() -> None:
+    A, b, c = _problem_tensors()
+    metrics = evaluate_primal_dual_batch_torch(
+        A,
+        b,
+        c,
+        torch.tensor([[3.0, 1.0]], dtype=torch.float64),
+        torch.tensor([[0.5, 0.0]], dtype=torch.float64),
+    )
+    assert metrics["gap"][0].item() < 0.0
+    assert metrics["superoptimality"][0].item() > 0.0
 
 
 def test_complementarity_is_zero_for_known_optimal_pair() -> None:

@@ -72,6 +72,7 @@ class BackendConfig:
 class ParallelScoreConfig:
     objective: float = 1.0
     gap: float = 1.0
+    superoptimality: float = 1.0
     primal_violation: float = 100.0
     dual_violation: float = 100.0
     complementarity: float = 0.1

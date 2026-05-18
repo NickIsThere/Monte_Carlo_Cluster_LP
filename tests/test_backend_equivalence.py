@@ -38,6 +38,7 @@ def _assert_metrics_close(left: dict[str, np.ndarray], right: dict[str, np.ndarr
         "primal_objective",
         "dual_objective",
         "gap",
+        "superoptimality",
         "primal_violation",
         "dual_violation",
         "complementarity",

@@ -29,6 +29,7 @@ def evaluate_primal_dual_batch_torch(
     primal_objective = X @ c
     dual_objective = Y @ b
     gap = dual_objective - primal_objective
+    superoptimality = torch.relu(-gap)
     complementarity = torch.abs(Y * primal_slack).sum(dim=1)
     active_mask = primal_slack <= active_epsilon
     active_count = active_mask.sum(dim=1)
@@ -36,6 +37,7 @@ def evaluate_primal_dual_batch_torch(
         "primal_objective": primal_objective,
         "dual_objective": dual_objective,
         "gap": gap,
+        "superoptimality": superoptimality,
         "primal_violation": primal_violation,
         "dual_violation": dual_violation,
         "complementarity": complementarity,
@@ -57,6 +59,7 @@ def score_primal_dual_batch_torch(
     torch = _require_torch()
     score = weights.objective * metrics["primal_objective"]
     score = score - weights.gap * torch.relu(metrics["gap"])
+    score = score - weights.superoptimality * metrics["superoptimality"]
     score = score - weights.primal_violation * metrics["primal_violation"]
     score = score - weights.dual_violation * metrics["dual_violation"]
     score = score - weights.complementarity * metrics["complementarity"]

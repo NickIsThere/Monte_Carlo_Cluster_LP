@@ -19,6 +19,7 @@ if nb is not None:
     def _score_primal_dual_batch_numba(
         primal_objective: np.ndarray,
         gap: np.ndarray,
+        superoptimality: np.ndarray,
         primal_violation: np.ndarray,
         dual_violation: np.ndarray,
         complementarity: np.ndarray,
@@ -27,6 +28,7 @@ if nb is not None:
         active_conflict: np.ndarray,
         objective_weight: float,
         gap_weight: float,
+        superoptimality_weight: float,
         primal_violation_weight: float,
         dual_violation_weight: float,
         complementarity_weight: float,
@@ -39,6 +41,7 @@ if nb is not None:
         for k in nb.prange(K):
             value = objective_weight * primal_objective[k]
             value -= gap_weight * max(gap[k], 0.0)
+            value -= superoptimality_weight * superoptimality[k]
             value -= primal_violation_weight * primal_violation[k]
             value -= dual_violation_weight * dual_violation[k]
             value -= complementarity_weight * complementarity[k]
@@ -64,6 +67,7 @@ def score_primal_dual_batch_numba(
     scores = _score_primal_dual_batch_numba(
         primal_objective,
         np.asarray(metrics["gap"]),
+        np.asarray(metrics["superoptimality"]),
         np.asarray(metrics["primal_violation"]),
         np.asarray(metrics["dual_violation"]),
         np.asarray(metrics["complementarity"]),
@@ -72,6 +76,7 @@ def score_primal_dual_batch_numba(
         zeros if active_conflict is None else np.asarray(active_conflict),
         weights.objective,
         weights.gap,
+        weights.superoptimality,
         weights.primal_violation,
         weights.dual_violation,
         weights.complementarity,

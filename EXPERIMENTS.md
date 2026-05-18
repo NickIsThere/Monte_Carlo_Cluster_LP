@@ -111,16 +111,3 @@ Solver hints:
 - `outputs/benchmarks/solver_hints/summary.md`
 - `outputs/figures/solver_hints/`
 
-## Reporting Guidance
-
-Use the reports as research evidence. Accept negative results and report them directly.
-
-Acceptable framing:
-
-- Geometry-aware sampling recovered the optimal active set earlier than naive sampling under the same sample budget.
-- Geometry-aware sampling improved active-set overlap but did not improve final objective quality on this benchmark family.
-
-Avoid overclaiming:
-
-- Do not describe the project as beating or replacing HiGHS.
-- Do not describe the solver-hint experiment as a true HiGHS warm start unless the solver interface actually supports it.
