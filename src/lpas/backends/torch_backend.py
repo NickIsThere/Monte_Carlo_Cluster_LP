@@ -133,7 +133,7 @@ class TorchBackend(CandidateBackend):
     ) -> dict[str, Any]:
         del elite_Y, dual_positive_epsilon
         primal_slack = problem_data["b"].unsqueeze(0) - elite_X @ problem_data["A"].transpose(0, 1)
-        active_mask = primal_slack <= active_epsilon
+        active_mask = primal_slack.abs() <= active_epsilon
         active_frequency = active_frequency_torch(active_mask)
         likely_active = self.torch.nonzero(active_frequency >= 0.5, as_tuple=False).flatten()
         return {

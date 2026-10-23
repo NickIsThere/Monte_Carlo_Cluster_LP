@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
+from numbers import Integral
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,34 @@ class ParallelSolverConfig:
 
 
 @dataclass(frozen=True)
+class PDHGConfig:
+    steps_per_iteration: int = 5
+    step_scale: float = 0.9
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.steps_per_iteration, Integral) or self.steps_per_iteration <= 0:
+            raise ValueError("steps_per_iteration must be positive")
+        if not 0.0 < self.step_scale < 1.0:
+            raise ValueError("step_scale must lie strictly between zero and one")
+
+
+@dataclass(frozen=True)
+class PrimalRecoveryConfig:
+    enabled: bool = False
+    max_steps: int = 256
+    max_candidates: int = 4
+    time_fraction: float = 0.1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.max_steps, Integral) or self.max_steps <= 0:
+            raise ValueError("recovery max_steps must be a positive integer")
+        if not isinstance(self.max_candidates, Integral) or self.max_candidates <= 0:
+            raise ValueError("recovery max_candidates must be a positive integer")
+        if not 0.0 < self.time_fraction < 1.0:
+            raise ValueError("recovery time_fraction must lie strictly between zero and one")
+
+
+@dataclass(frozen=True)
 class SolverConfig:
     batch_size: int = 1024
     max_iter: int = 500
@@ -110,3 +140,17 @@ class SolverConfig:
     warm_start: WarmStartConfig = field(default_factory=WarmStartConfig)
     vertex_polishing: VertexPolishingConfig = field(default_factory=VertexPolishingConfig)
     feasibility: FeasibilityConfig = field(default_factory=FeasibilityConfig)
+    search_mode: str = "sampling"
+    pdhg: PDHGConfig = field(default_factory=PDHGConfig)
+    stop_on_variance_collapse: bool = True
+    recovery: PrimalRecoveryConfig = field(default_factory=PrimalRecoveryConfig)
+
+    def __post_init__(self) -> None:
+        if self.search_mode not in {"sampling", "pdhg", "hybrid"}:
+            raise ValueError("search_mode must be sampling, pdhg, or hybrid")
+        if self.batch_size <= 0 or self.max_iter <= 0:
+            raise ValueError("batch_size and max_iter must be positive")
+        if not 0.0 < self.elite_fraction <= 1.0:
+            raise ValueError("elite_fraction must lie in (0, 1]")
+        if self.time_limit_seconds is not None and (not math.isfinite(self.time_limit_seconds) or self.time_limit_seconds <= 0.0):
+            raise ValueError("time_limit_seconds must be finite and positive")

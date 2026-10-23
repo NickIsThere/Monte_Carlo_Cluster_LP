@@ -6,7 +6,7 @@ from lpas.backends.torch_device import _require_torch
 
 
 def active_mask_from_slack_torch(primal_slack: Any, *, active_epsilon: float) -> Any:
-    return primal_slack <= active_epsilon
+    return primal_slack.abs() <= active_epsilon
 
 
 def active_count_torch(active_mask: Any) -> Any:

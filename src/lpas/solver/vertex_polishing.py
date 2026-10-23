@@ -181,8 +181,8 @@ def reconstruct_vertex_from_active_set(
     )
     primal_violation = float(feasibility_report.total_violation)
     feasible = bool(residual <= residual_tol and feasibility_report.is_feasible)
-    original_active_mask = (problem.b - problem.A @ x) <= feasibility_tol
-    nonneg_active_mask = np.asarray(x <= feasibility_tol, dtype=bool)
+    original_active_mask = np.abs(problem.b - problem.A @ x) <= feasibility_tol
+    nonneg_active_mask = np.asarray(np.abs(x) <= feasibility_tol, dtype=bool)
     return PolishedVertex(
         x=np.asarray(x, dtype=float),
         objective=float(problem.maximization_objective_value(x)),

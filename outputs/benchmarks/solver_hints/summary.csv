@@ -1,3 +1,4 @@
 method,count,hint_active_set_jaccard_mean,constraints_in_top_k_support_mean,reconstruction_success_mean,objective_gap_to_highs_mean,wall_clock_seconds_mean
-geometry_aware,8,0.0,0.94375,0.0,nan,0.020999004991608672
-naive_monte_carlo,8,0.0,0.88125,0.0,nan,0.01166293201094959
+geometry_aware,8,0.0,0.3375,0.0,nan,0.02230719262479397
+geometry_aware_polished,8,1.0,0.3375,1.0,7.077671781985373e-16,0.03394553112457288
+naive_monte_carlo,8,0.0,0.3375,0.0,nan,0.01605920850079201

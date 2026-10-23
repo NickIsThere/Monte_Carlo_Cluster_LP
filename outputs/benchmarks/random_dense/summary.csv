@@ -1,3 +1,4 @@
-method,count,active_set_recovery_accuracy_mean,time_to_identify_optimal_active_constraints_mean,objective_gap_to_highs_mean,wall_clock_seconds_mean
-geometry_aware,8,1.0,0.0031387758936034516,0.22215306596839512,0.022855687406263314
-naive_monte_carlo,8,0.9541666666666667,0.003256697877077386,0.31262351887531015,0.01323360437527299
+method,count,raw_best_objective_mean,polished_objective_mean,active_set_recovery_accuracy_mean,polishing_wall_clock_seconds_mean,time_to_identify_optimal_active_constraints_mean,objective_gap_to_highs_mean,wall_clock_seconds_mean
+geometry_aware,8,4.97766640499699,nan,0.025,0.0,nan,0.17710160774458655,0.02041032799934328
+geometry_aware_polished,8,4.97766640499699,5.154768012741576,1.0,0.01321485937523903,0.03362518737458231,7.077671781985373e-16,0.03362518737458231
+naive_monte_carlo,8,4.842144493866266,nan,0.025,0.0,nan,0.31262351887531015,0.01580497412578552

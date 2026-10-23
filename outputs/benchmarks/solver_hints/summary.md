@@ -46,7 +46,34 @@ This project investigates whether geometry-aware adaptive sampling can recover u
   "warm_start": {
     "feasibility_tol": 1e-07,
     "max_combinations": 512
-  }
+  },
+  "vertex_polishing": {
+    "enabled": true,
+    "elite_fraction": 0.05,
+    "tau": 0.01,
+    "method": "rbf",
+    "max_ranked_constraints": null,
+    "max_candidates_per_sample": 100,
+    "max_total_candidates": 5000,
+    "feasibility_tol": 1e-08,
+    "residual_tol": 1e-08,
+    "feasibility": {
+      "absolute_tolerance": 1e-07,
+      "relative_tolerance": 1e-07,
+      "nonnegativity_tolerance": 1e-08
+    }
+  },
+  "feasibility": {
+    "absolute_tolerance": 1e-07,
+    "relative_tolerance": 1e-07,
+    "nonnegativity_tolerance": 1e-08
+  },
+  "search_mode": "sampling",
+  "pdhg": {
+    "steps_per_iteration": 5,
+    "step_scale": 0.9
+  },
+  "stop_on_variance_collapse": true
 }
 ```
 
@@ -54,9 +81,10 @@ This project investigates whether geometry-aware adaptive sampling can recover u
 
 | method | count | hint_active_set_jaccard_mean | constraints_in_top_k_support_mean | reconstruction_success_mean | objective_gap_to_highs_mean | wall_clock_seconds_mean |
 | --- | --- | --- | --- | --- | --- | --- |
-| Geometry-aware | 8 | 0.0000 | 0.9437 | 0.0000 | - | 0.0210 |
-| Naive Monte Carlo | 8 | 0.0000 | 0.8812 | 0.0000 | - | 0.0117 |
+| Geometry-aware (raw) | 8 | 0.0000 | 0.3375 | 0.0000 | - | 0.0223 |
+| Geometry-aware + polishing | 8 | 1.0000 | 0.3375 | 1.0000 | 0.0000 | 0.0339 |
+| Naive Monte Carlo | 8 | 0.0000 | 0.3375 | 0.0000 | - | 0.0161 |
 
 ## Interpretation
 
-The solver-hint layer behaved as a diagnostic experiment rather than a direct solver replacement in this run.
+The explicit polishing stage converted more geometry-aware hints into feasible corners than the raw archive alone on this run.

@@ -23,6 +23,7 @@ The end-to-end pipeline is:
 
 ```text
 sample primal/dual candidates
+        -> optionally refine with directed primal-dual (PDHG) steps
         -> score feasibility, gap, complementarity, and geometric support
         -> infer soft active sets
         -> reconstruct and polish candidate vertices
@@ -30,17 +31,37 @@ sample primal/dual candidates
         -> compare with HiGHS
 ```
 
-## Results at a glance
+## Directed primal-dual experiment
 
-The checked-in quick benchmark uses eight bounded dense LP instances and the same
-sample budget for both methods. It is deliberately small and should be read as an
-experiment result, not a universal performance claim.
+The solver now supports `sampling`, `pdhg`, and `hybrid` search modes. The hybrid
+refines sampled candidates with PDHG before updating its sampling distribution,
+while retaining a continuous deterministic trajectory. Sampling remains the
+default.
 
-| Metric | Geometry-aware | Naive Monte Carlo |
-| --- | ---: | ---: |
-| Mean active-set recovery (Jaccard) | **1.000** | 0.954 |
-| Mean objective gap to HiGHS | **0.222** | 0.313 |
-| Mean wall-clock time | 22.9 ms | **13.2 ms** |
+The [method walkthrough](docs/PRIMAL_DUAL_HYBRID.md) explains the updates,
+configuration, correctness checks and limitations. The
+[matched-time comparison](outputs/benchmarks/primal_dual_comparison/summary.md)
+compares all three modes on four synthetic LP families, with vertex polishing
+disabled and failures retained in success-rate denominators.
+
+The [follow-up investigation](docs/PRIMAL_DUAL_FOLLOWUP.md) adds an optional primal
+recovery stage shared by all three modes, tests smaller batches and deeper
+updates, and validates recovery on held-out seeds with up to 40 variables.
+Its [validation report](outputs/benchmarks/primal_dual_followup/validation/summary.md)
+includes paired success-rate differences and uncertainty intervals.
+
+The [external PDLP pilot](outputs/benchmarks/pdlp_comparison/pilot/findings.md)
+compares our recovery procedure with established polishing on three public sparse
+LPs. It found no demonstrated advantage: complete-solve success rates matched,
+and PDLP's primal-feasibility procedure repaired the saved early checkpoints more
+reliably. Seven additional public LPs remain held out.
+
+Active-set detection, rank ties, cross-iteration candidate retention, full
+complementarity and recovery metrics have been corrected. Recovery now evaluates
+the selected incumbent, includes variable bounds and uses normalized boundary
+distances. The former headline recovery figures used a different, overstated
+metric and have been removed. Older corner-discovery and solver-seeding artifacts
+must be regenerated before comparison with the corrected implementation.
 
 The backend throughput experiment also reached **8.44 million samples/second** for
 a 10-variable, 20-constraint problem with a one-million-sample batch on Apple MPS.
@@ -57,9 +78,9 @@ under [`benchmarks/results`](benchmarks/results).
   figures, and seven walkthrough notebooks.
 - Feasibility-first ranking prevents attractive but infeasible reconstructed points
   from being reported as valid LP solutions.
-- **174 passing tests** in the current snapshot, including unit, integration,
-  regression, backend-equivalence, numerical-safety, and reproducibility checks
-  (four optional-backend tests skip when their dependencies are unavailable).
+- Unit, integration, regression, backend-equivalence, numerical-safety, and
+  reproducibility checks, including PDHG convergence and false-certificate checks
+  (optional-backend tests skip when dependencies or devices are unavailable).
 
 ## Tech stack
 
@@ -107,6 +128,7 @@ python scripts/run_toy_visuals.py --quick
 python scripts/run_random_dense_benchmark.py --quick
 python scripts/run_solver_hint_experiment.py --quick
 python scripts/make_benchmark_plots.py
+python scripts/run_primal_dual_comparison.py --quick
 ```
 
 Optional accelerated backends:
@@ -123,7 +145,7 @@ avoid silently comparing different hardware.
 
 ## Experiments and outputs
 
-The suite has three main layers:
+The suite includes:
 
 1. **Toy 2D/3D studies** visualize feasible regions, elite samples, convergence,
    active constraints, and raw-versus-polished candidates.
@@ -131,6 +153,11 @@ The suite has three main layers:
    geometry-aware sampling with deterministic vertex polishing.
 3. **Solver-hint studies** measure whether sampled active-set support contains the
    constraints required to reconstruct useful corners.
+4. **Directed primal-dual comparison** tests sampling, basic preconditioned PDHG,
+   and their hybrid under the same wall-clock limits.
+5. **External PDLP comparison** tests projection recovery against native PDLP
+   polishing on pinned public sparse LPs, with independent result verification.
+   See [the fixed protocol](docs/PDLP_COMPARISON_PROTOCOL.md).
 
 See [`EXPERIMENTS.md`](EXPERIMENTS.md) for experiment controls, metric definitions,
 output paths, and full reproduction commands. The main recorded outputs are:
@@ -148,6 +175,9 @@ simplex, interior-point, or PDLP solvers. It currently targets dense LPs of the 
 exhaustive active-set enumeration; and benchmark conclusions are limited to the
 included problem families and seeds. High-objective infeasible candidates are kept
 only as diagnostics and are never treated as valid solutions.
+The separate PDLP benchmark adapter supports general sparse LP bounds without
+changing the research solver's dense problem contract. Improvements over our
+basic PDHG implementation do not establish improvements over production PDLP.
 
 ## License
 

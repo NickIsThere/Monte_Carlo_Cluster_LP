@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.stats import rankdata
 
 from lpas.core.primal_dual import PrimalDualMetrics
 from lpas.utils.config import ScoringConfig
@@ -31,13 +32,9 @@ def rank_normalized(values: np.ndarray, *, higher_is_better: bool) -> np.ndarray
     array = _safe_values(values, higher_is_better)
     if array.size == 1:
         return np.ones(1, dtype=float)
-    if higher_is_better:
-        order = np.argsort(array)
-    else:
-        order = np.argsort(-array)
-    ranks = np.empty_like(order, dtype=float)
-    ranks[order] = np.linspace(0.0, 1.0, num=array.size)
-    return ranks
+    # Ties must contribute equally, including an entirely absent geometry reward.
+    oriented = array if higher_is_better else -array
+    return (rankdata(oriented, method="average") - 1.0) / (array.size - 1)
 
 
 def score_candidates(

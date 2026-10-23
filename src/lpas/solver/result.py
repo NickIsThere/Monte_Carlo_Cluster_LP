@@ -35,6 +35,7 @@ class ArchiveEntry:
     dual_feasible: bool
     primal_active_mask: np.ndarray
     dual_active_mask: np.ndarray
+    kkt_residual: float = float("inf")
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,9 @@ class IterationMetrics:
     sampler_sigma_x: np.ndarray
     sampler_mu_y: np.ndarray
     sampler_sigma_y: np.ndarray
+    elapsed_seconds: float = 0.0
+    best_kkt_residual: float | None = None
+    best_feasible_dual_objective: float | None = None
 
 
 @dataclass(frozen=True)
@@ -184,6 +188,7 @@ class SolverResult:
     polished_certified_feasible: bool | None = None
     bound_certificate: BoundCertificate | None = None
     corner_discovery: MultiCornerDiscoveryResult | None = None
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -46,26 +46,56 @@ This project investigates whether geometry-aware adaptive sampling can recover u
   "warm_start": {
     "feasibility_tol": 1e-07,
     "max_combinations": 512
-  }
+  },
+  "vertex_polishing": {
+    "enabled": true,
+    "elite_fraction": 0.05,
+    "tau": 0.01,
+    "method": "rbf",
+    "max_ranked_constraints": null,
+    "max_candidates_per_sample": 100,
+    "max_total_candidates": 5000,
+    "feasibility_tol": 1e-08,
+    "residual_tol": 1e-08,
+    "feasibility": {
+      "absolute_tolerance": 1e-07,
+      "relative_tolerance": 1e-07,
+      "nonnegativity_tolerance": 1e-08
+    }
+  },
+  "feasibility": {
+    "absolute_tolerance": 1e-07,
+    "relative_tolerance": 1e-07,
+    "nonnegativity_tolerance": 1e-08
+  },
+  "search_mode": "sampling",
+  "pdhg": {
+    "steps_per_iteration": 5,
+    "step_scale": 0.9
+  },
+  "stop_on_variance_collapse": true
 }
 ```
 
 ## Overall Method Comparison
 
-| method | count | active_set_recovery_accuracy_mean | time_to_identify_optimal_active_constraints_mean | objective_gap_to_highs_mean | wall_clock_seconds_mean |
-| --- | --- | --- | --- | --- | --- |
-| Geometry-aware | 8 | 1.0000 | 0.0031 | 0.2222 | 0.0229 |
-| Naive Monte Carlo | 8 | 0.9542 | 0.0033 | 0.3126 | 0.0132 |
+| method | count | raw_best_objective_mean | polished_objective_mean | active_set_recovery_accuracy_mean | polishing_wall_clock_seconds_mean | time_to_identify_optimal_active_constraints_mean | objective_gap_to_highs_mean | wall_clock_seconds_mean |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Geometry-aware (raw) | 8 | 4.9777 | - | 0.0250 | 0.0000 | - | 0.1771 | 0.0204 |
+| Geometry-aware + polishing | 8 | 4.9777 | 5.1548 | 1.0000 | 0.0132 | 0.0336 | 0.0000 | 0.0336 |
+| Naive Monte Carlo | 8 | 4.8421 | - | 0.0250 | 0.0000 | - | 0.3126 | 0.0158 |
 
 ## Family Breakdown
 
-| method | family | count | active_set_recovery_accuracy_mean | objective_gap_to_highs_mean | wall_clock_seconds_mean |
-| --- | --- | --- | --- | --- | --- |
-| Geometry-aware | bounded_dense | 4 | 1.0000 | 0.1467 | 0.0215 |
-| Geometry-aware | controlled_optimum | 4 | 1.0000 | 0.2976 | 0.0242 |
-| Naive Monte Carlo | bounded_dense | 4 | 0.9500 | 0.1933 | 0.0117 |
-| Naive Monte Carlo | controlled_optimum | 4 | 0.9583 | 0.4320 | 0.0148 |
+| method | family | count | raw_best_objective_mean | polished_objective_mean | active_set_recovery_accuracy_mean | objective_gap_to_highs_mean | wall_clock_seconds_mean |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Geometry-aware (raw) | bounded_dense | 4 | 2.4204 | - | 0.0500 | 0.1107 | 0.0200 |
+| Geometry-aware (raw) | controlled_optimum | 4 | 7.5349 | - | 0.0000 | 0.2435 | 0.0208 |
+| Geometry-aware + polishing | bounded_dense | 4 | 2.4204 | 2.5311 | 1.0000 | -0.0000 | 0.0344 |
+| Geometry-aware + polishing | controlled_optimum | 4 | 7.5349 | 7.7784 | 1.0000 | 0.0000 | 0.0328 |
+| Naive Monte Carlo | bounded_dense | 4 | 2.3378 | - | 0.0500 | 0.1933 | 0.0150 |
+| Naive Monte Carlo | controlled_optimum | 4 | 7.3465 | - | 0.0000 | 0.4320 | 0.0166 |
 
 ## Interpretation
 
-Geometry-aware sampling recovered the optimal active set earlier or more reliably on average under the same sample budget.
+Vertex polishing reduced the mean objective gap after geometry-aware sampling while keeping the scientific framing as a solver-hint refinement step.

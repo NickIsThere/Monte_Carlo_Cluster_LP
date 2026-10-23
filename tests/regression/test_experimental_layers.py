@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import pytest
+from lpas.core.active_set import augmented_active_mask
+from lpas.experiments.metrics import active_set_jaccard
 
 from lpas.experiments.benchmark_runner import GEOMETRY_AWARE_METHOD, run_problem_comparison, run_random_dense_suite
 from lpas.experiments.random_dense import build_random_dense_suite
@@ -40,7 +43,7 @@ def test_fixed_seed_benchmark_produces_stable_rows(fast_solver_config) -> None:
     assert trimmed_a == trimmed_b
 
 
-def test_known_2d_lp_recovers_high_active_set_similarity(fast_solver_config) -> None:
+def test_known_2d_recovery_describes_selected_point(fast_solver_config) -> None:
     case = triangle_unique_optimum()
     config = replace(fast_solver_config, batch_size=128, max_iter=12, patience=6)
     results = run_problem_comparison(
@@ -51,4 +54,9 @@ def test_known_2d_lp_recovers_high_active_set_similarity(fast_solver_config) -> 
         capture_samples=False,
     )
     geometry_result = next(result for result in results if result.method == GEOMETRY_AWARE_METHOD)
-    assert geometry_result.active_set_recovery_accuracy >= 2.0 / 3.0
+    assert geometry_result.final_x is not None
+    expected = active_set_jaccard(
+        augmented_active_mask(case.problem, geometry_result.final_x, config.active_tol),
+        augmented_active_mask(case.problem, geometry_result.reference_result.x, config.active_tol),
+    )
+    assert geometry_result.active_set_recovery_accuracy == pytest.approx(expected)

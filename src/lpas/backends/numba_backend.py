@@ -57,7 +57,7 @@ class NumbaBackend(NumpyBackend):
         active_conflict = None
         if weights.active_support != 0.0 or weights.active_agreement != 0.0 or weights.active_conflict != 0.0:
             primal_slack = problem_data["b"][None, :] - X @ problem_data["A"].T
-            active_mask = primal_slack <= active_epsilon
+            active_mask = np.abs(primal_slack) <= active_epsilon
             if weights.active_support != 0.0 and active_frequency is not None:
                 active_support = active_support_numpy(active_mask, active_frequency)
             if weights.active_agreement != 0.0 or weights.active_conflict != 0.0:

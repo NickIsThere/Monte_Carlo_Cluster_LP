@@ -33,8 +33,8 @@ def evaluate_primal_dual_batch_numpy(
     dual_objective = Y @ b
     gap = dual_objective - primal_objective
     superoptimality = np.maximum(-gap, 0.0)
-    complementarity = np.abs(Y * primal_slack).sum(axis=1)
-    active_mask = primal_slack <= active_epsilon
+    complementarity = np.abs(Y * primal_slack).sum(axis=1) + np.abs(X * dual_slack).sum(axis=1)
+    active_mask = np.abs(primal_slack) <= active_epsilon
     active_count = active_mask.sum(axis=1)
     return {
         "primal_objective": primal_objective,
@@ -218,7 +218,7 @@ class NumpyBackend(CandidateBackend):
     ) -> dict[str, np.ndarray]:
         del elite_Y, dual_positive_epsilon
         primal_slack = problem_data["b"][None, :] - elite_X @ problem_data["A"].T
-        active_mask = primal_slack <= active_epsilon
+        active_mask = np.abs(primal_slack) <= active_epsilon
         active_frequency = active_mask.astype(float).mean(axis=0)
         return {
             "elite_active_mask": active_mask,

@@ -7,14 +7,17 @@ from collections import Counter
 import numpy as np
 
 from lpas.certificates.bounds import build_bound_certificate
-from lpas.core.active_set import extract_active_sets
+from lpas.core.active_set import extract_active_sets, primal_active_mask, dual_active_mask
 from lpas.core.lp_problem import LPProblem
-from lpas.core.primal_dual import evaluate_primal_dual_pairs
+from lpas.core.primal_dual import evaluate_primal_dual_pairs, normalized_kkt_residual
 from lpas.core.scoring import score_candidates
 from lpas.geometry.clustering import active_pattern_key, compute_cluster_support
 from lpas.geometry.density_reward import compute_geometry_support
 from lpas.sampling.gaussian_sampler import GaussianAdaptiveSampler
 from lpas.solver.result import ArchiveEntry, IterationMetrics, SolverResult, SolverStatus
+from lpas.solver.pdhg import PDHGRefiner
+from lpas.solver.feasibility_recovery import recover_primal_points
+from lpas.solver.selection import archive_entry_key
 from lpas.solver.vertex_polishing import polish_archive, polished_vertex_to_warm_start_hint
 from lpas.solver.warm_start import reconstruct_from_active_set, reconstruct_from_archive
 from lpas.utils.config import SolverConfig
@@ -32,6 +35,7 @@ class AdaptiveLPSolver:
         metrics,
         active_sets,
         index: int,
+        kkt_residual: float = float("inf"),
     ) -> ArchiveEntry:
         return ArchiveEntry(
             x=X[index].copy(),
@@ -47,6 +51,7 @@ class AdaptiveLPSolver:
             dual_feasible=bool(metrics.dual_feasible[index]),
             primal_active_mask=active_sets.primal_active_mask[index].copy(),
             dual_active_mask=active_sets.dual_active_mask[index].copy(),
+            kkt_residual=kkt_residual,
         )
 
     def _dominant_active_pattern(self, archive: list[ArchiveEntry]) -> tuple[tuple[bool, ...], tuple[bool, ...]] | None:
@@ -59,8 +64,19 @@ class AdaptiveLPSolver:
         return counter.most_common(1)[0][0]
 
     def solve(self, problem: LPProblem) -> SolverResult:
+        start_time = time.perf_counter()
+        deadline = None if self.config.time_limit_seconds is None else start_time + self.config.time_limit_seconds
+        search_deadline = deadline
+        if deadline is not None and self.config.recovery.enabled:
+            search_deadline = start_time + self.config.time_limit_seconds * (1.0 - self.config.recovery.time_fraction)
         canonical_problem = problem.to_maximization()
         sampler = GaussianAdaptiveSampler(canonical_problem.n, canonical_problem.m, self.config.sampler)
+        mode = self.config.search_mode
+        refiner = None if mode == "sampling" else PDHGRefiner(canonical_problem, self.config.pdhg)
+        # A persistent zero-start trajectory also anchors the hybrid; random
+        # proposals can explore other faces without resetting this trajectory.
+        anchor_X = np.zeros((1, canonical_problem.n))
+        anchor_Y = np.zeros((1, canonical_problem.m))
         archive: list[ArchiveEntry] = []
         history: list[IterationMetrics] = []
         archive_limit = self.config.archive_limit_multiplier * self.config.batch_size
@@ -68,19 +84,51 @@ class AdaptiveLPSolver:
         best_feasible: ArchiveEntry | None = None
         best_dual_feasible: ArchiveEntry | None = None
         best_scored: ArchiveEntry | None = None
-        best_score_seen = -np.inf
+        best_kkt_seen = np.inf
         stagnation = 0
         status = SolverStatus.MAX_ITER_REACHED
-        start_time = time.perf_counter()
+        sampling_seconds = 0.0
+        directed_seconds = 0.0
+        samples_evaluated = 0
+        pdhg_pair_steps = 0
+        termination_reason = "max_iterations"
+
+        # Retain the shared initial point when it is feasible. Otherwise PDHG
+        # could lose a valid incumbent just by taking its first exploratory step.
+        initial_metrics = evaluate_primal_dual_pairs(canonical_problem, anchor_X, anchor_Y, feasibility_tol=self.config.feasibility_tol)
+        initial_active = extract_active_sets(canonical_problem, anchor_X, anchor_Y, epsilon=self.config.active_tol)
+        initial_kkt = float(normalized_kkt_residual(canonical_problem, initial_metrics)[0])
+        initial = self._make_archive_entry(anchor_X, anchor_Y, np.zeros(1), initial_metrics, initial_active, 0, initial_kkt)
+        best_scored = initial
+        best_kkt_entry = initial
+        best_kkt_seen = initial_kkt
+        best_feasible = initial if initial.primal_feasible else None
+        best_dual_feasible = initial if initial.dual_feasible else None
+        samples_evaluated = 1
 
         for iteration in range(self.config.max_iter):
-            if self.config.time_limit_seconds is not None:
-                if time.perf_counter() - start_time > self.config.time_limit_seconds:
+            if search_deadline is not None:
+                if time.perf_counter() >= search_deadline:
                     status = SolverStatus.APPROXIMATE if best_feasible is not None else SolverStatus.MAX_ITER_REACHED
+                    termination_reason = "time_limit"
                     break
 
-            X = sampler.sample_primal(self.config.batch_size)
-            Y = sampler.sample_dual(self.config.batch_size)
+            stage_start = time.perf_counter()
+            if mode == "pdhg":
+                X, Y = anchor_X, anchor_Y
+            else:
+                X = sampler.sample_primal(self.config.batch_size)
+                Y = sampler.sample_dual(self.config.batch_size)
+                if mode == "hybrid":
+                    X[0], Y[0] = anchor_X[0], anchor_Y[0]
+            sampling_seconds += time.perf_counter() - stage_start
+            if refiner is not None:
+                stage_start = time.perf_counter()
+                X, Y, steps = refiner.refine(X, Y, deadline=search_deadline)
+                directed_seconds += time.perf_counter() - stage_start
+                pdhg_pair_steps += steps * X.shape[0]
+                anchor_X, anchor_Y = X[:1].copy(), Y[:1].copy()
+            samples_evaluated += X.shape[0]
             metrics = evaluate_primal_dual_pairs(
                 canonical_problem,
                 X,
@@ -88,8 +136,9 @@ class AdaptiveLPSolver:
                 feasibility_tol=self.config.feasibility_tol,
             )
             active_sets = extract_active_sets(canonical_problem, X, Y, epsilon=self.config.active_tol)
+            residuals = normalized_kkt_residual(canonical_problem, metrics)
 
-            if archive:
+            if archive and mode != "pdhg":
                 elite_X = np.array([entry.x for entry in archive], dtype=float)
                 elite_Y = np.array([entry.y for entry in archive], dtype=float)
                 elite_primal_masks = np.array([entry.primal_active_mask for entry in archive], dtype=bool)
@@ -122,32 +171,38 @@ class AdaptiveLPSolver:
                 config=self.config.scoring,
             )
 
-            elite_indices = np.argsort(scores)[-elite_count:][::-1]
+            elite_indices = np.argsort(scores)[-min(elite_count, X.shape[0]):][::-1]
             elite_X_batch = X[elite_indices]
             elite_Y_batch = Y[elite_indices]
-            sampler.update(elite_X_batch, elite_Y_batch, scores[elite_indices])
+            if mode != "pdhg":
+                sampler.update(elite_X_batch, elite_Y_batch, scores[elite_indices])
 
             new_entries = [
-                self._make_archive_entry(X, Y, scores, metrics, active_sets, int(index))
+                self._make_archive_entry(X, Y, scores, metrics, active_sets, int(index), float(residuals[index]))
                 for index in elite_indices
             ]
             archive.extend(new_entries)
-            archive.sort(key=lambda entry: entry.score, reverse=True)
+            archive.sort(key=archive_entry_key, reverse=True)
             archive = archive[:archive_limit]
 
-            candidate_best = max(new_entries, key=lambda entry: entry.score)
-            if best_scored is None or candidate_best.score > best_scored.score:
+            best_residual_index = int(np.argmin(residuals))
+            candidate_best = self._make_archive_entry(X, Y, scores, metrics, active_sets, best_residual_index, float(residuals[best_residual_index]))
+            if candidate_best.kkt_residual < best_kkt_entry.kkt_residual:
+                best_kkt_entry = candidate_best
+            if best_scored is None or archive_entry_key(candidate_best) > archive_entry_key(best_scored):
                 best_scored = candidate_best
 
+            improved = False
             feasible_mask = np.asarray(metrics.primal_feasible, dtype=bool)
             if np.any(feasible_mask):
                 feasible_indices = np.flatnonzero(feasible_mask)
                 feasible_best_index = int(
                     feasible_indices[np.argmax(np.asarray(metrics.primal_objective, dtype=float)[feasible_mask])]
                 )
-                feasible_best = self._make_archive_entry(X, Y, scores, metrics, active_sets, feasible_best_index)
+                feasible_best = self._make_archive_entry(X, Y, scores, metrics, active_sets, feasible_best_index, float(residuals[feasible_best_index]))
                 if best_feasible is None or feasible_best.primal_objective > best_feasible.primal_objective:
                     best_feasible = feasible_best
+                    improved = True
 
             dual_feasible_mask = np.asarray(metrics.dual_feasible, dtype=bool)
             if np.any(dual_feasible_mask):
@@ -155,19 +210,22 @@ class AdaptiveLPSolver:
                 dual_best_index = int(
                     dual_feasible_indices[np.argmin(np.asarray(metrics.dual_objective, dtype=float)[dual_feasible_mask])]
                 )
-                dual_best = self._make_archive_entry(X, Y, scores, metrics, active_sets, dual_best_index)
+                dual_best = self._make_archive_entry(X, Y, scores, metrics, active_sets, dual_best_index, float(residuals[dual_best_index]))
                 if best_dual_feasible is None or dual_best.dual_objective < best_dual_feasible.dual_objective:
                     best_dual_feasible = dual_best
+                    improved = True
 
-            improved = False
             current_best_score = float(np.max(scores))
-            if current_best_score > best_score_seen + 1e-12:
-                best_score_seen = current_best_score
+            current_kkt = float(np.min(residuals))
+            if current_kkt < best_kkt_seen - 1e-12:
+                best_kkt_seen = current_kkt
                 improved = True
 
             best_certified_gap = None
             if best_feasible is not None and best_dual_feasible is not None:
-                best_certified_gap = float(best_dual_feasible.dual_objective - best_feasible.primal_objective)
+                candidate_gap = float(best_dual_feasible.dual_objective - best_feasible.primal_objective)
+                if np.isfinite(candidate_gap) and candidate_gap >= 0.0:
+                    best_certified_gap = candidate_gap
 
             dominant_pattern = self._dominant_active_pattern(archive)
             history.append(
@@ -184,17 +242,22 @@ class AdaptiveLPSolver:
                     sampler_sigma_x=sampler.primal_sigma,
                     sampler_mu_y=sampler.dual_mean,
                     sampler_sigma_y=sampler.dual_sigma,
+                    elapsed_seconds=time.perf_counter() - start_time,
+                    best_kkt_residual=best_kkt_seen,
+                    best_feasible_dual_objective=None if best_dual_feasible is None else best_dual_feasible.dual_objective,
                 )
             )
 
-            if best_certified_gap is not None and best_certified_gap <= self.config.gap_tol:
+            if best_certified_gap is not None and 0.0 <= best_certified_gap <= self.config.gap_tol:
                 status = SolverStatus.OPTIMAL_CERTIFIED
+                termination_reason = "certified_gap"
                 break
 
-            if np.all(sampler.primal_sigma <= self.config.sampler.sigma_min * self.config.variance_collapse_factor) and np.all(
+            if self.config.stop_on_variance_collapse and mode == "sampling" and np.all(sampler.primal_sigma <= self.config.sampler.sigma_min * self.config.variance_collapse_factor) and np.all(
                 sampler.dual_sigma <= self.config.sampler.sigma_min * self.config.variance_collapse_factor
             ):
                 status = SolverStatus.APPROXIMATE if best_feasible is not None else SolverStatus.MAX_ITER_REACHED
+                termination_reason = "variance_collapse"
                 break
 
             if improved:
@@ -203,9 +266,51 @@ class AdaptiveLPSolver:
                 stagnation += 1
             if stagnation >= self.config.patience:
                 status = SolverStatus.APPROXIMATE if best_feasible is not None else SolverStatus.MAX_ITER_REACHED
+                termination_reason = "stagnation"
                 break
         else:
             status = SolverStatus.APPROXIMATE if best_feasible is not None else SolverStatus.MAX_ITER_REACHED
+
+        recovery_start = time.perf_counter()
+        recovered_incumbent = None
+        recovery_attempts = recovery_steps = recovery_feasible = 0
+        if self.config.recovery.enabled and (deadline is None or recovery_start < deadline):
+            # Keep the best KKT pair independently of feasible-objective archive
+            # pruning. Good infeasible PDHG iterates are essential recovery inputs.
+            ordered = [best_kkt_entry]
+            if archive:
+                ordered.append(max(archive, key=lambda entry: entry.primal_objective))
+            ordered.extend(sorted(archive, key=lambda entry: entry.kkt_residual))
+            targets = []
+            for entry in ordered:
+                if any(np.array_equal(entry.x, other.x) for other in targets):
+                    continue
+                targets.append(entry)
+                if len(targets) >= self.config.recovery.max_candidates:
+                    break
+            repaired_X, recovery_steps = recover_primal_points(
+                canonical_problem, np.asarray([entry.x for entry in targets]),
+                max_steps=self.config.recovery.max_steps,
+                tolerance=self.config.feasibility_tol * 0.1, deadline=deadline,
+            )
+            recovery_attempts = len(targets)
+            repaired_Y = np.asarray([entry.y for entry in targets])
+            repaired_metrics = evaluate_primal_dual_pairs(canonical_problem, repaired_X, repaired_Y, feasibility_tol=self.config.feasibility_tol)
+            repaired_active = extract_active_sets(canonical_problem, repaired_X, repaired_Y, epsilon=self.config.active_tol)
+            repaired_residuals = normalized_kkt_residual(canonical_problem, repaired_metrics)
+            best_kkt_seen = min(best_kkt_seen, float(np.min(repaired_residuals)))
+            for index in np.flatnonzero(repaired_metrics.primal_feasible):
+                recovery_feasible += 1
+                entry = self._make_archive_entry(repaired_X, repaired_Y, np.zeros(len(targets)), repaired_metrics, repaired_active, int(index), float(repaired_residuals[index]))
+                if best_feasible is None or entry.primal_objective > best_feasible.primal_objective:
+                    best_feasible = recovered_incumbent = entry
+                archive.append(entry)
+            archive.sort(key=archive_entry_key, reverse=True)
+            archive = archive[:archive_limit]
+            samples_evaluated += len(targets)
+        recovery_seconds = time.perf_counter() - recovery_start if self.config.recovery.enabled else 0.0
+        if best_feasible is not None and status == SolverStatus.MAX_ITER_REACHED:
+            status = SolverStatus.APPROXIMATE
 
         raw_selected = best_feasible or best_scored or best_dual_feasible
         polishing_result = polish_archive(
@@ -253,7 +358,7 @@ class AdaptiveLPSolver:
 
         raw_best_nonneg_active_mask = None
         if raw_selected is not None:
-            raw_best_nonneg_active_mask = np.asarray(raw_selected.x <= self.config.active_tol, dtype=bool)
+            raw_best_nonneg_active_mask = np.asarray(np.abs(raw_selected.x) <= self.config.active_tol, dtype=bool)
 
         bound_certificate = build_bound_certificate(
             canonical_problem,
@@ -269,6 +374,14 @@ class AdaptiveLPSolver:
             scipy_result=None,
             feasibility_tol=self.config.feasibility_tol,
         )
+        if bound_certificate.has_valid_certificate and bound_certificate.certified_gap <= self.config.gap_tol:
+            if status != SolverStatus.OPTIMAL_CERTIFIED:
+                termination_reason = "recovery_certified_gap" if recovered_incumbent is not None else "polished_certified_gap"
+            status = SolverStatus.OPTIMAL_CERTIFIED
+        elif status == SolverStatus.OPTIMAL_CERTIFIED:
+            # A replacement point can invalidate a previously valid bound gap.
+            status = SolverStatus.APPROXIMATE
+            termination_reason = "uncertified_after_polishing"
 
         final_best_x = None
         final_best_y = None
@@ -297,7 +410,23 @@ class AdaptiveLPSolver:
             final_best_primal_violation = raw_selected.primal_violation
             final_best_dual_violation = raw_selected.dual_violation
             final_best_complementarity_error = raw_selected.complementarity_error
-            solution_source = "raw_sampling"
+            solution_source = "feasibility_recovery" if raw_selected is recovered_incumbent else "raw_sampling"
+
+        if final_best_x is not None:
+            # Report the returned point's active set, including after polishing.
+            final_best_y = None if best_dual_feasible is None else best_dual_feasible.y.copy()
+            if final_best_y is None and raw_selected is not None:
+                final_best_y = raw_selected.y.copy()
+            best_active_set = (
+                primal_active_mask(canonical_problem, final_best_x, self.config.active_tol),
+                np.zeros(canonical_problem.n, dtype=bool) if final_best_y is None else dual_active_mask(canonical_problem, final_best_y, self.config.active_tol),
+            )
+            if final_best_y is not None:
+                final_metrics = evaluate_primal_dual_pairs(canonical_problem, final_best_x, final_best_y, feasibility_tol=self.config.feasibility_tol)
+                final_best_dual_objective = float(final_metrics.dual_objective[0])
+                final_best_dual_violation = float(final_metrics.dual_violation_norm[0])
+                final_best_complementarity_error = float(final_metrics.complementarity_error[0])
+            final_best_gap = bound_certificate.certified_gap
 
         polishing_improved_solution = None
         if polished_best is not None:
@@ -344,4 +473,20 @@ class AdaptiveLPSolver:
             polishing_improved_solution=polishing_improved_solution,
             polished_certified_feasible=None if polished_best is None else polished_best.feasible,
             bound_certificate=bound_certificate,
+            diagnostics={
+                "search_mode": mode,
+                "runtime_seconds": time.perf_counter() - start_time,
+                "sampling_time_seconds": sampling_seconds,
+                "directed_time_seconds": directed_seconds,
+                "candidates_evaluated": samples_evaluated,
+                "pdhg_pair_steps": pdhg_pair_steps,
+                "best_kkt_residual": None if not np.isfinite(best_kkt_seen) else best_kkt_seen,
+                "termination_reason": termination_reason,
+                "recovery_enabled": self.config.recovery.enabled,
+                "recovery_time_seconds": recovery_seconds,
+                "recovery_attempts": recovery_attempts,
+                "recovery_point_steps": recovery_steps,
+                "recovery_feasible_points": recovery_feasible,
+                "recovery_improved_incumbent": recovered_incumbent is not None,
+            },
         )

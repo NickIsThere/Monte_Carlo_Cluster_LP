@@ -132,3 +132,30 @@ def test_certificate_validation_script_runs_and_writes_outputs(tmp_path: Path) -
     assert (tmp_path / "results" / "certificates" / "certificate_separation_examples.json").exists()
     assert (tmp_path / "results" / "certificates" / "certificate_separation_summary.md").exists()
     assert (tmp_path / "figures" / "certificates" / "certificate_gap_comparison.png").exists()
+
+
+def test_primal_dual_comparison_writes_three_method_results(tmp_path: Path) -> None:
+    import json
+
+    _run_script("scripts/run_primal_dual_comparison.py", tmp_path)
+    payload = json.loads((tmp_path / "results.json").read_text())
+    assert {row["method"] for row in payload["records"]} == {"sampling", "pdhg", "hybrid"}
+    assert (tmp_path / "comparison.png").exists()
+    assert (tmp_path / "summary.md").exists()
+    for row in payload["records"]:
+        assert row["total_time_seconds"] >= row["directed_time_seconds"]
+        if not row["feasible"]:
+            assert row["relative_objective_error"] is None
+
+
+def test_primal_dual_followup_exports_raw_and_recovered_controls(tmp_path: Path) -> None:
+    import json
+
+    _run_script("scripts/run_primal_dual_followup.py", tmp_path)
+    payload = json.loads((tmp_path / "results.json").read_text())
+    assert {r["profile"] for r in payload["records"]} == {"raw", "recovered"}
+    assert {r["method"] for r in payload["records"]} == {"sampling", "pdhg", "hybrid"}
+    assert (tmp_path / "comparison.png").exists()
+    for record in payload["records"]:
+        assert len(record["history"]) <= 64
+        assert record["recovery_enabled"] == (record["profile"] == "recovered")

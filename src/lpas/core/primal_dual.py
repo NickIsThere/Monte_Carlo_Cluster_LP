@@ -47,7 +47,8 @@ def _batch_metrics(problem: LPProblem, X: np.ndarray, Y: np.ndarray, tol: float)
     raw_gap = dual_objective - primal_objective
 
     complementarity_vector = Y * primal_slack
-    complementarity_error = np.sum(np.abs(complementarity_vector), axis=1)
+    # Both inequality multipliers and nonnegative variable bounds enter KKT.
+    complementarity_error = np.sum(np.abs(complementarity_vector), axis=1) + np.sum(np.abs(X * dual_slack), axis=1)
 
     primal_feasible = (np.max(primal_violation, axis=1, initial=0.0) <= tol) & (
         np.max(nonneg_x_violation, axis=1, initial=0.0) <= tol
@@ -73,6 +74,15 @@ def _batch_metrics(problem: LPProblem, X: np.ndarray, Y: np.ndarray, tol: float)
         primal_feasible=primal_feasible,
         dual_feasible=dual_feasible,
     )
+
+
+def normalized_kkt_residual(problem: LPProblem, metrics: PrimalDualMetrics) -> np.ndarray:
+    """Comparable across batches; never requires an optimum or reference solver."""
+    primal = np.asarray(metrics.primal_violation_norm) / (1.0 + np.linalg.norm(problem.b, ord=1))
+    dual = np.asarray(metrics.dual_violation_norm) / (1.0 + np.linalg.norm(problem.c, ord=1))
+    scale = 1.0 + np.abs(metrics.primal_objective) + np.abs(metrics.dual_objective)
+    residual = np.maximum.reduce([primal, dual, np.abs(metrics.raw_gap) / scale, metrics.complementarity_error / scale])
+    return np.where(np.isfinite(residual), residual, np.inf)
 
 
 def evaluate_primal_dual_pairs(

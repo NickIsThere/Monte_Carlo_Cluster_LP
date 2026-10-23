@@ -16,12 +16,12 @@ class ActiveSetBatch:
 
 def primal_active_mask(problem: LPProblem, x: np.ndarray, epsilon: float = 1e-6) -> np.ndarray:
     slack = problem.b - problem.A @ np.asarray(x, dtype=float)
-    return slack <= epsilon
+    return np.abs(slack) <= epsilon
 
 
 def dual_active_mask(problem: LPProblem, y: np.ndarray, epsilon: float = 1e-6) -> np.ndarray:
     slack = problem.A.T @ np.asarray(y, dtype=float) - problem.c
-    return slack <= epsilon
+    return np.abs(slack) <= epsilon
 
 
 def extract_active_sets(problem: LPProblem, X: np.ndarray, Y: np.ndarray, epsilon: float = 1e-6) -> ActiveSetBatch:
@@ -29,7 +29,15 @@ def extract_active_sets(problem: LPProblem, X: np.ndarray, Y: np.ndarray, epsilo
     Y_batch = ensure_batch(Y, expected_dim=problem.m, name="Y")
     primal_slack = problem.b - X_batch @ problem.A.T
     dual_slack = Y_batch @ problem.A - problem.c
-    return ActiveSetBatch(primal_active_mask=primal_slack <= epsilon, dual_active_mask=dual_slack <= epsilon)
+    return ActiveSetBatch(primal_active_mask=np.abs(primal_slack) <= epsilon, dual_active_mask=np.abs(dual_slack) <= epsilon)
+
+
+def augmented_active_mask(problem: LPProblem, x: np.ndarray, epsilon: float = 1e-6) -> np.ndarray:
+    """Boundary distances, including x >= 0; positive row scaling is immaterial."""
+    row_norms = np.linalg.norm(problem.A, axis=1)
+    row_norms = np.where(row_norms > 0.0, row_norms, 1.0)
+    distances = (problem.b - problem.A @ np.asarray(x, dtype=float)) / row_norms
+    return np.concatenate([np.abs(distances) <= epsilon, np.abs(x) <= epsilon])
 
 
 def rank_active_constraints(primal_masks: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:

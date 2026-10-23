@@ -60,8 +60,11 @@ def _jsonify(value: Any) -> Any:
 
 def benchmark_result_row(result: MethodExperimentResult) -> dict[str, object]:
     reference_active_set_size = None
-    if result.reference_result.primal_active_mask is not None:
-        reference_active_set_size = int(np.sum(np.asarray(result.reference_result.primal_active_mask, dtype=bool)))
+    reference_mask = result.reference_result.augmented_primal_active_mask
+    if reference_mask is None:
+        reference_mask = result.reference_result.primal_active_mask
+    if reference_mask is not None:
+        reference_active_set_size = int(np.sum(np.asarray(reference_mask, dtype=bool)))
     certificate = result.bound_certificate
     corner = result.corner_discovery
     return {
@@ -140,6 +143,8 @@ def benchmark_result_payload(result: MethodExperimentResult) -> dict[str, object
             "message": result.reference_result.message,
             "objective": result.reference_result.objective,
             "primal_active_mask": _jsonify(result.reference_result.primal_active_mask),
+            "nonneg_active_mask": _jsonify(result.reference_result.nonneg_active_mask),
+            "augmented_primal_active_mask": _jsonify(result.reference_result.augmented_primal_active_mask),
         },
         "bound_certificate": None if result.bound_certificate is None else _jsonify(result.bound_certificate),
         "corner_discovery": None if result.corner_discovery is None else _jsonify(result.corner_discovery),
@@ -479,6 +484,7 @@ def write_random_dense_outputs(results: list[MethodExperimentResult], output_roo
     rows = [benchmark_result_row(result) for result in results]
     payload = {
         "framing": SCIENTIFIC_FRAMING,
+        "active_set_metric": "Selected incumbent; normalized boundary distances including nonnegative variable bounds. No oracle sample selection.",
         "config": config_payload,
         "results": [benchmark_result_payload(result) for result in results],
     }

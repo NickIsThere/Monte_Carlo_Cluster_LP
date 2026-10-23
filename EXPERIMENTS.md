@@ -45,8 +45,14 @@ python scripts/run_toy_visuals.py --seed 7 --samples-per-iteration 256 --n-itera
 
 ## Metrics
 
+Recovery metrics now evaluate the selected incumbent, rather than the
+reference-best sample in a batch. They include nonnegative variable bounds and
+use row-normalized boundary distances. Violated constraints are not treated as
+active. Historical outputs predating these corrections use different semantics
+and must be regenerated for current comparisons.
+
 - `active_set_recovery_accuracy`
-  Jaccard overlap between a sampled active set and the HiGHS active set.
+  Jaccard overlap between the selected incumbent's augmented active set and the HiGHS active set.
 - `best_feasible_objective`
   Best objective among primal-feasible sampled candidates.
 - `raw_best_objective` and `polished_objective`
@@ -60,9 +66,9 @@ python scripts/run_toy_visuals.py --seed 7 --samples-per-iteration 256 --n-itera
 - `best_gap`
   Lowest duality-gap style score observed so far.
 - `best_complementarity_error`
-  Lowest complementarity error observed so far.
+  Lowest full complementarity error observed so far, including variable-bound terms.
 - `time_to_identify_optimal_active_constraints`
-  First wall-clock time when active-set Jaccard reaches the recovery threshold.
+  First wall-clock time when the selected incumbent's active-set Jaccard reaches the recovery threshold; it need not remain above it.
 - `constraints_in_top_k_support`
   Fraction of HiGHS active constraints covered by the top-ranked sampled support set.
 - `objective_gap_to_highs`
@@ -111,3 +117,68 @@ Solver hints:
 - `outputs/benchmarks/solver_hints/summary.md`
 - `outputs/figures/solver_hints/`
 
+
+## Sampling / PDHG / Hybrid Comparison
+
+See [the method walkthrough](docs/PRIMAL_DUAL_HYBRID.md) for equations, configuration,
+corrections and interpretation. This separate experiment uses equal wall-clock
+limits and disables vertex polishing for all methods:
+
+```bash
+python scripts/run_primal_dual_comparison.py --quick
+python scripts/run_primal_dual_comparison.py --repeats 3
+```
+
+Outputs are saved under `outputs/benchmarks/primal_dual_comparison/`: individual
+records and convergence histories in `results.json`, flat records in `results.csv`,
+a summary in `summary.md`, and a comparison figure in `comparison.png`.
+The summary reports feasibility, objective accuracy and verified-gap success
+separately. All objective bounds use the internal maximization form.
+
+Follow-up screening and held-out recovery validation:
+
+```bash
+python scripts/run_primal_dual_followup.py --stage screen
+python scripts/run_primal_dual_followup.py --stage validation
+```
+
+See [the follow-up protocol](docs/PRIMAL_DUAL_FOLLOWUP.md) for fixed settings,
+independent seeds, numerical-library thread controls, paired uncertainty
+estimates and the separation between primary and exploratory comparisons.
+
+## External PDLP and native feasibility polishing
+
+The [fixed comparison protocol](docs/PDLP_COMPARISON_PROTOCOL.md) and
+[machine-readable manifest](experiments/pdlp_protocol.json) define the next
+external comparison. This uses an optional sparse adapter and pinned public MPS
+inputs, not the dense synthetic problem generator. Install the optional extras:
+
+```bash
+pip install -e '.[pdlp]'
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  python scripts/run_pdlp_comparison.py --quick
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  python scripts/run_pdlp_comparison.py --stage pilot
+```
+
+The pilot uses only three development problems. Seven other public problems
+remain held out; `--stage heldout` opens that set. Do not use held-out outcomes
+for tuning. `--stage development` runs the full development grid.
+
+Results include exact settings frozen before timing, original-coordinate sparse
+model snapshots, raw primal/dual vectors, solver parameters, checksums, paired
+summaries and validation. Complete-solve timing includes MPS parsing, conversion,
+recovery and final checks. Native calls can overrun their cooperative limits;
+within-budget success is reported separately. Identical-checkpoint recovery is
+a separate diagnostic, with checkpoint generation recorded as common cost.
+
+```bash
+python scripts/run_pdlp_comparison.py --validate \
+  outputs/benchmarks/pdlp_comparison/pilot/results.json
+```
+
+See [the pilot report](outputs/benchmarks/pdlp_comparison/pilot/summary.md).
+The [pilot findings](outputs/benchmarks/pdlp_comparison/pilot/findings.md) explain
+the negative result, early-checkpoint limitations and remaining research question.
+These comparisons evaluate implementations of established techniques; they do
+not by themselves establish a novel algorithm or a general solver improvement.

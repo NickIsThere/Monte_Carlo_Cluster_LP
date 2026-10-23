@@ -30,8 +30,8 @@ def evaluate_primal_dual_batch_torch(
     dual_objective = Y @ b
     gap = dual_objective - primal_objective
     superoptimality = torch.relu(-gap)
-    complementarity = torch.abs(Y * primal_slack).sum(dim=1)
-    active_mask = primal_slack <= active_epsilon
+    complementarity = torch.abs(Y * primal_slack).sum(dim=1) + torch.abs(X * dual_slack).sum(dim=1)
+    active_mask = primal_slack.abs() <= active_epsilon
     active_count = active_mask.sum(dim=1)
     return {
         "primal_objective": primal_objective,

@@ -7,7 +7,7 @@ import numpy as np
 
 from lpas.certificates.bounds import BoundCertificate, build_bound_certificate
 from lpas.corners.multi_corner_discovery import MultiCornerDiscoveryResult, discover_multiple_corners
-from lpas.core.active_set import extract_active_sets
+from lpas.core.active_set import augmented_active_mask, extract_active_sets
 from lpas.core.scoring import effective_gap, score_candidates
 from lpas.experiments.metrics import active_set_jaccard, exact_active_set_match, objective_gap_to_reference
 from lpas.geometry.clustering import compute_cluster_support
@@ -16,7 +16,8 @@ from lpas.sampling.gaussian_sampler import GaussianAdaptiveSampler
 from lpas.solver.result import ArchiveEntry, VertexPolishingResult
 from lpas.solver.scipy_handoff import ScipySolveResult, solve_with_scipy
 from lpas.solver.vertex_polishing import polish_archive
-from lpas.core.primal_dual import evaluate_primal_dual_pairs
+from lpas.core.primal_dual import evaluate_primal_dual_pairs, normalized_kkt_residual
+from lpas.solver.selection import archive_entry_key
 from lpas.utils.config import ScoringConfig, SolverConfig
 
 
@@ -96,7 +97,7 @@ class MethodExperimentResult:
     corner_discovery: MultiCornerDiscoveryResult | None = None
 
 
-def _make_archive_entry(X, Y, scores, metrics, active_sets, index: int) -> ArchiveEntry:
+def _make_archive_entry(X, Y, scores, metrics, active_sets, index: int, kkt_residual: float = float("inf")) -> ArchiveEntry:
     return ArchiveEntry(
         x=X[index].copy(),
         y=Y[index].copy(),
@@ -111,6 +112,7 @@ def _make_archive_entry(X, Y, scores, metrics, active_sets, index: int) -> Archi
         dual_feasible=bool(metrics.dual_feasible[index]),
         primal_active_mask=active_sets.primal_active_mask[index].copy(),
         dual_active_mask=active_sets.dual_active_mask[index].copy(),
+        kkt_residual=kkt_residual,
     )
 
 
@@ -139,12 +141,6 @@ def _best_feasible_entry(archive: list[ArchiveEntry]) -> ArchiveEntry | None:
     return max(feasible_entries, key=lambda entry: entry.primal_objective)
 
 
-def _reference_active_mask(reference: ScipySolveResult, n_constraints: int) -> np.ndarray:
-    if reference.primal_active_mask is None:
-        return np.zeros(n_constraints, dtype=bool)
-    return np.asarray(reference.primal_active_mask, dtype=bool)
-
-
 def _apply_vertex_polishing_variant(
     base_result: MethodExperimentResult,
     problem,
@@ -155,7 +151,7 @@ def _apply_vertex_polishing_variant(
     polishing_result = polish_archive(problem.to_maximization(), base_result.elite_archive, config=config.vertex_polishing)
     polished_best = polishing_result.best_vertex
     polishing_seconds = float(polishing_result.diagnostics.get("polishing_time_seconds", 0.0))
-    reference_mask = _reference_active_mask(base_result.reference_result, base_result.n_constraints)
+    reference_mask = augmented_active_mask(problem, base_result.reference_result.x, config.active_tol) if base_result.reference_result.x is not None else None
     bound_certificate = build_bound_certificate(
         problem.to_maximization(),
         raw_primal_objective=None if base_result.bound_certificate is None else base_result.bound_certificate.raw_primal_objective,
@@ -178,9 +174,10 @@ def _apply_vertex_polishing_variant(
     polished_primal_violation = None
     polished_objective = None
     polished_x = None
-    if polished_best is not None:
-        polished_active_set_similarity = active_set_jaccard(polished_best.original_active_mask, reference_mask)
-        polished_exact_match = exact_active_set_match(polished_best.original_active_mask, reference_mask)
+    if polished_best is not None and reference_mask is not None:
+        polished_mask = augmented_active_mask(problem, polished_best.x, config.active_tol)
+        polished_active_set_similarity = active_set_jaccard(polished_mask, reference_mask)
+        polished_exact_match = exact_active_set_match(polished_mask, reference_mask)
         polished_primal_violation = polished_best.primal_violation
         polished_objective = polished_best.objective
         polished_x = polished_best.x.copy()
@@ -210,9 +207,9 @@ def _apply_vertex_polishing_variant(
     exact_match = base_result.exact_active_set_match
     first_recovery_iteration = base_result.first_recovery_iteration
     time_to_recovery = base_result.time_to_identify_optimal_active_constraints
-    if polished_active_set_similarity is not None:
-        active_set_recovery_accuracy = max(active_set_recovery_accuracy, polished_active_set_similarity)
-        exact_match = exact_match or bool(polished_exact_match)
+    if solution_source == "vertex_polishing" and polished_active_set_similarity is not None:
+        active_set_recovery_accuracy = polished_active_set_similarity
+        exact_match = bool(polished_exact_match)
         if first_recovery_iteration is None and polished_active_set_similarity >= recovery_jaccard_threshold:
             first_recovery_iteration = len(base_result.history)
             time_to_recovery = base_result.wall_clock_seconds + polishing_seconds
@@ -270,13 +267,11 @@ def run_sampling_method(
     capture_samples: bool = False,
     recovery_jaccard_threshold: float = 0.8,
 ) -> MethodExperimentResult:
+    if config.search_mode != "sampling":
+        raise ValueError("Use the primal-dual comparison experiment for pdhg/hybrid modes")
     canonical_problem = problem.to_maximization()
     reference = reference_result or solve_with_scipy(canonical_problem)
-    reference_active_mask = (
-        np.zeros(canonical_problem.m, dtype=bool)
-        if reference.primal_active_mask is None
-        else np.asarray(reference.primal_active_mask, dtype=bool)
-    )
+    reference_active_mask = None if reference.x is None else augmented_active_mask(canonical_problem, reference.x, config.active_tol)
 
     sampler_seed = config.sampler.seed if config.sampler.seed is not None else config.seed
     sampler = GaussianAdaptiveSampler(
@@ -316,6 +311,7 @@ def run_sampling_method(
         X = sampler.sample_primal(config.batch_size)
         Y = sampler.sample_dual(config.batch_size)
         metrics = evaluate_primal_dual_pairs(canonical_problem, X, Y, feasibility_tol=config.feasibility_tol)
+        residuals = normalized_kkt_residual(canonical_problem, metrics)
         active_sets = extract_active_sets(canonical_problem, X, Y, epsilon=config.active_tol)
 
         if method == GEOMETRY_AWARE_METHOD:
@@ -346,17 +342,17 @@ def run_sampling_method(
             config=scoring_config,
         )
         elite_indices = np.argsort(scores)[-elite_count:][::-1]
-        new_entries = [_make_archive_entry(X, Y, scores, metrics, active_sets, int(index)) for index in elite_indices]
+        new_entries = [_make_archive_entry(X, Y, scores, metrics, active_sets, int(index), float(residuals[index])) for index in elite_indices]
         archive.extend(new_entries)
-        archive.sort(key=lambda entry: entry.score, reverse=True)
+        archive.sort(key=archive_entry_key, reverse=True)
         archive = archive[:archive_limit]
 
         if method == GEOMETRY_AWARE_METHOD:
             sampler.update(X[elite_indices], Y[elite_indices], scores[elite_indices])
 
-        batch_best_index = int(np.argmax(scores))
-        candidate_best = _make_archive_entry(X, Y, scores, metrics, active_sets, batch_best_index)
-        if best_scored_entry is None or candidate_best.score > best_scored_entry.score:
+        batch_best_index = int(np.argmin(residuals))
+        candidate_best = _make_archive_entry(X, Y, scores, metrics, active_sets, batch_best_index, float(residuals[batch_best_index]))
+        if best_scored_entry is None or archive_entry_key(candidate_best) > archive_entry_key(best_scored_entry):
             best_scored_entry = candidate_best
 
         current_best_objective = float(np.max(metrics.primal_objective))
@@ -386,14 +382,12 @@ def run_sampling_method(
             if best_dual_feasible_entry is None or dual_best_entry.dual_objective < best_dual_feasible_entry.dual_objective:
                 best_dual_feasible_entry = dual_best_entry
 
-        batch_jaccards = np.asarray(
-            [active_set_jaccard(mask, reference_active_mask) for mask in active_sets.primal_active_mask],
-            dtype=float,
-        )
-        best_active_jaccard = max(best_active_jaccard, float(np.max(batch_jaccards, initial=0.0)))
-        exact_match = exact_match or bool(
-            np.any([exact_active_set_match(mask, reference_active_mask) for mask in active_sets.primal_active_mask])
-        )
+        # Evaluate the selected incumbent, never the oracle-best of all samples.
+        selected = best_feasible_entry or best_scored_entry
+        if selected is not None and reference_active_mask is not None:
+            selected_mask = augmented_active_mask(canonical_problem, selected.x, config.active_tol)
+            best_active_jaccard = active_set_jaccard(selected_mask, reference_active_mask)
+            exact_match = exact_active_set_match(selected_mask, reference_active_mask)
 
         if first_recovery_iteration is None and best_active_jaccard >= recovery_jaccard_threshold:
             first_recovery_iteration = iteration + 1
@@ -435,8 +429,10 @@ def run_sampling_method(
         raw_best_x = raw_best_entry.x.copy()
         raw_best_primal_violation = raw_best_entry.primal_violation
         final_active_mask = raw_best_entry.primal_active_mask.copy()
-        raw_active_set_similarity = active_set_jaccard(raw_best_entry.primal_active_mask, reference_active_mask)
-        raw_exact_match = exact_active_set_match(raw_best_entry.primal_active_mask, reference_active_mask)
+        if reference_active_mask is not None:
+            raw_mask = augmented_active_mask(canonical_problem, raw_best_entry.x, config.active_tol)
+            raw_active_set_similarity = active_set_jaccard(raw_mask, reference_active_mask)
+            raw_exact_match = exact_active_set_match(raw_mask, reference_active_mask)
 
     bound_certificate = build_bound_certificate(
         canonical_problem,
@@ -459,6 +455,7 @@ def run_sampling_method(
         reference_result=reference,
         feasibility_config=config.feasibility,
     )
+    wall_clock = time.perf_counter() - start
 
     return MethodExperimentResult(
         problem_name=problem_name,

@@ -30,7 +30,7 @@ def solve_with_scipy(problem: LPProblem, active_tol: float = 1e-6) -> ScipySolve
     augmented_active_mask = None
     if x is not None:
         active_mask = primal_active_mask(problem, x, epsilon=active_tol)
-        nonneg_active_mask = np.asarray(x <= active_tol, dtype=bool)
+        nonneg_active_mask = np.asarray(np.abs(x) <= active_tol, dtype=bool)
         augmented_active_mask = np.concatenate([active_mask, nonneg_active_mask])
     return ScipySolveResult(
         success=bool(result.success),

@@ -56,7 +56,7 @@ if nb is not None:
                 for j in range(n):
                     ax += X[k, j] * A[i, j]
                 slack = b[i] - ax
-                if slack <= active_epsilon:
+                if abs(slack) <= active_epsilon:
                     active += 1
                 if slack < 0.0:
                     primal_viol += -slack
@@ -67,6 +67,7 @@ if nb is not None:
                 for i in range(m):
                     ya += Y[k, i] * A[i, j]
                 dual_slack = ya - c[j]
+                comp += abs(X[k, j] * dual_slack)
                 if dual_slack < 0.0:
                     dual_viol += -dual_slack
 
